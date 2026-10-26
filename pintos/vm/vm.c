@@ -65,6 +65,13 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: Fill this function. */
+	struct hash_iterator cur;
+	hash_first(&cur, spt->spt_hash);
+	while (hash_next(&cur))
+	{
+		struct page *page = hash_entry(hash_cur(&cur), struct page, elem);
+		if(page->va == va) return page;
+	}
 
 	return page;
 }
@@ -75,6 +82,11 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	int succ = false;
 	/* TODO: Fill this function. */
+	struct hash_elem *insert_hash_elem = hash_insert (spt -> spt_hash, &page -> elem);
+	if (insert_hash_elem == NULL)
+	{
+		succ = true;
+	}
 
 	return succ;
 }
@@ -137,6 +149,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 
+	
+
 	return vm_do_claim_page (page);
 }
 
@@ -172,8 +186,25 @@ vm_do_claim_page (struct page *page) {
 }
 
 /* Initialize new supplemental page table */
+uint64_t 
+spt_hash_function (const struct hash_elem *e, void *aux){
+	struct page *hash_page = hash_entry(e, struct page, elem);
+	return hash_bytes(hash_page->va, sizeof(void *));
+}
+
+bool
+spt_less_function(const struct hash_elem *a, const struct hash_elem *b, void *aux){
+	struct page *pa = hash_entry(a, struct page, elem);
+	struct page *pb = hash_entry(b, struct page, elem);
+	uint64_t pa_bytes = hash_bytes(pa->va, sizeof(void *));
+	uint64_t pb_bytes = hash_bytes(pb->va, sizeof(void *));
+
+	return pa_bytes < pb_bytes;
+}
+
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	hash_init(spt->spt_hash, spt_hash_function, spt_less_function, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
