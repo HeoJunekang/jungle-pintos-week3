@@ -128,12 +128,32 @@ initd (void *f_name) {
 int
 fd_init(){
 	struct thread *t = thread_current();
-	struct file **fd = calloc(64,sizeof(struct file *));
+	struct file_descriptor **fd = calloc(FILE_MAX, sizeof(struct file_descriptor *));
 	if(fd == NULL) return -1;
+
+	fd[0] = malloc(sizeof(struct file_descriptor));
+	if(fd[0] == NULL){
+		free(fd);
+		return -1;
+	} 
+	fd[0]->fT = FD_STDIN;
+	fd[0]->file = NULL;
+	fd[0]->share = 1;	
+	
+	fd[1] = malloc(sizeof(struct file_descriptor));
+	if(fd[1] == NULL){
+		free(fd[0]);
+		free(fd);
+		return -1;
+	} 
+	fd[1]->fT = FD_STDOUT;
+	fd[1]->file = NULL;
+	fd[1]->share = 1;
 
 	t->fdt = fd;
 	return 0;
 }
+
 
 
 /* Clones the current process as `name`. Returns the new process's thread id, or
@@ -243,31 +263,76 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
-	if(fd_init()) goto error; //free process 종료시 해줘야 함
+	// if(fd_init()) goto error; //free process 종료시 해줘야 함
 
-	int i = 2;
-	while(i < FILE_MAX){
-		if(parent->fdt[i] != NULL){
-			current->fdt[i] = file_duplicate(parent->fdt[i]);
-			if(current->fdt[i] == NULL) goto error;
+	/* 자식의 빈 FDT 배열 생성 */
+	current->fdt = calloc(FILE_MAX, sizeof(struct file_descriptor *));
+	if (current->fdt == NULL)
+		goto error;
+
+	if (parent->fdt == NULL)
+		goto error;
+
+	/* 부모 FDT 복제 */
+	for (int i = 0; i < FILE_MAX; i++) {
+		if (parent->fdt[i] == NULL)
+			continue;
+
+		int fd = find_back(parent->fdt, parent->fdt[i], i);
+
+		/* 이미 복제한 공유 객체라면 재사용 */
+		if (fd != -1) {
+			current->fdt[i] = current->fdt[fd];
+			current->fdt[i]->share++;
+			continue;
 		}
-		i++;
+
+		/* 처음 등장한 객체라면 새로 생성 */
+		struct file_descriptor *new_desc =
+			calloc(1, sizeof(struct file_descriptor));
+
+		if (new_desc == NULL)
+			goto error;
+
+		new_desc->fT = parent->fdt[i]->fT;
+		new_desc->share = 1;
+
+		/* 일반 파일일 때만 file_duplicate */
+		if (new_desc->fT == FD_FILE) {
+			new_desc->file = file_duplicate(parent->fdt[i]->file);
+
+			if (new_desc->file == NULL) {
+				free(new_desc);
+				goto error;
+			}
+		}
+
+		current->fdt[i] = new_desc;
 	}
 
-	process_init ();
+		process_init ();
 
-	/* Finally, switch to the newly created process. */
+		/* Finally, switch to the newly created process. */
 
-	if_.R.rax = 0;
-	info->success = true;
-	sema_up(&info->sema);
-	do_iret (&if_);
+		if_.R.rax = 0;
+		info->success = true;
+		sema_up(&info->sema);
+		do_iret (&if_);
 
-		
-error:
-	info->success = false;
-	sema_up(&info->sema);
-	thread_exit ();
+			
+	error:
+		info->success = false;
+		sema_up(&info->sema);
+		thread_exit ();
+}
+int 
+find_back(struct file_descriptor **fdt, struct file_descriptor *cur, int fd){
+	for(int i = fd-1; i >= 0; i--){
+		if(fdt[i] == cur){
+			return i;
+		}
+	}
+	return -1;
 }
 
 /* Switch the current execution context to the f_name.
@@ -437,10 +502,21 @@ process_exit (void) {
 	
 	process_cleanup ();
 	file_close (curr->running_file);
+
 	if (curr -> fdt != NULL){
 		for (int i= 0; i<FILE_MAX; i++){
 			if (curr->fdt[i] != NULL){
-				file_close(curr -> fdt[i]);
+				if (curr->fdt[i]->share == 1){
+					if (curr->fdt[i]->fT == FILE){
+						file_close(curr -> fdt[i]->file);
+					}
+					free(curr->fdt[i]);
+				}
+				else{ 
+					if(curr->fdt[i]->share >= 2){
+						curr->fdt[i]->share --;
+					}
+				}
 			}
 		}
 	}
