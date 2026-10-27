@@ -123,17 +123,19 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = NULL;
+	struct frame *frame = malloc(sizeof(frame));
 	/* TODO: Fill this function. */
+
+	frame->kva = palloc_get_page(PAL_ZERO||PAL_USER); // palloc에서는 userpool(커널영역의)에서 주소를 받아옴
+	if(frame->kva == NULL){
+		PANIC("todo"); // 가능 페이지 없음
+	}
+
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 
-	frame->page = palloc_get_page(PAL_USER);
-	if(frame->page == NULL){
-		PANIC("todo"); // 가능 페이지 없음
-	}
-
+	
 	//frame_table이 비어있으면 init
 	if(list_empty(&frame_table)){
 		list_init(&frame_table);
