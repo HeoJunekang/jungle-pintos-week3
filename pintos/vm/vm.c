@@ -72,7 +72,8 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 		struct page *page = hash_entry(hash_cur(&cur), struct page, elem);
 		if(page->va == va) return page;
 	}
-
+	//못찾으면 null을 반환
+	//찾으면 page 반환
 	return page;
 }
 
@@ -127,6 +128,19 @@ vm_get_frame (void) {
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
+
+	frame->page = palloc_get_page(PAL_USER);
+	if(frame->page == NULL){
+		PANIC("todo"); // 가능 페이지 없음
+	}
+
+	//frame_table이 비어있으면 init
+	if(list_empty(&frame_table)){
+		list_init(&frame_table);
+	}
+	//frame_table에 매핑
+	list_push_back(&frame_table, &frame->frame_table_elem);
+
 	return frame;
 }
 
@@ -166,8 +180,11 @@ vm_dealloc_page (struct page *page) {
 bool
 vm_claim_page (void *va UNUSED) {
 	struct page *page = NULL;
+	struct thread *cur_thread = thread_current();
 	/* TODO: Fill this function */
-
+	//va를 통해 해당 페이지 가져오기
+	page = spt_find_page (cur_thread->spt, va);
+	//가져온 페이지를 넘기기
 	return vm_do_claim_page (page);
 }
 
@@ -181,6 +198,9 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	struct thread *cur_thread = thread_current();
+	
+	pml4_set_page(cur_thread->pml4, page->va, frame->kva, 1); //pml4에 매핑하기
 
 	return swap_in (page, frame->kva);
 }

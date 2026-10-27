@@ -61,10 +61,14 @@ struct page {
 	};
 };
 
+struct list frame_table;
+
 /* The representation of "frame" */
 struct frame {
-	void *kva;
-	struct page *page;
+	void *kva;			//이건 뭐고 커널 가상주소
+	struct page *page; 	//이건 뭐여 프레임에 페이지가 왜 필요함
+
+	struct list_elem frame_table_elem;
 };
 
 /* The function table for page operations.
