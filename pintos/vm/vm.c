@@ -130,6 +130,12 @@ vm_get_frame (void) {
 		//userpool full so eviction must implement
 		PANIC("todo");
 	}
+	
+	if(list_empty(&frame_table)){
+		list_init(&frame_table);
+	}
+	list_push_back(&frame_table, &frame->frame_table_elem);
+	
 	ASSERT (frame->page == NULL);
 	return frame;
 }
@@ -186,7 +192,7 @@ vm_do_claim_page (struct page *page) {
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if(
 		!pml4_set_page(thread_current()->pml4, page, frame,
-	 is_writeable(pml4e_walk (thread_current()->pml4, (uint64_t) page, 0))))
+	 is_writeable(pml4e_walk (thread_current()->pml4, (uint64_t) page, 1)))) // 1?0
 	 {
 		return false;
 	 }
