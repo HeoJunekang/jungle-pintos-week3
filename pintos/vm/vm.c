@@ -50,6 +50,9 @@ static struct frame *vm_evict_frame (void);
  * `vm_alloc_page`. */
 /* 초기화자를 사용하여 대기 중인 페이지 객체(uninit)를 생성합니다. 
 	페이지를 생성하려면 이 함수나 `vm_alloc_page`를 통해 직접 생성하지 마세요.*/
+
+	//받아온 타입을 가진 uninit page를 생성해줌.
+	//그리고 spt에 넣어줌.
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
@@ -69,19 +72,17 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* 각 타입마다 다른 initializer 할당하기 */
 		switch (type)
 		{
-		case VM_UNINIT:// 이것도 넣어야함?
-			uninit_new (page, upage, init, type, aux, uninit_initialize(page, type, upage)); //load segment에서 나옴
-			break;
 		case VM_ANON:
-			uninit_new (page, upage, init, type, aux, anon_initializer(page, type, upage));
+			uninit_new (page, upage, init, type, aux, anon_initializer);
 			break;
 		case VM_FILE:
-			uninit_new (page, upage, init, type, aux, file_backed_initializer(page, type, upage));
+			uninit_new (page, upage, init, type, aux, file_backed_initializer);
 			break;
-		case VM_PAGE_CACHE:
-			uninit_new (page, upage, init, type, aux, page_cache_initializer(page, type, upage));
-			break;
+		// case VM_PAGE_CACHE:
+		// 	uninit_new (page, upage, init, type, aux, page_cache_initializer);
+		// 	break;
 		}
+		spt_insert_page(spt, page);
 		return true;
 	}
 err:
