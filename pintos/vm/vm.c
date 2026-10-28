@@ -5,6 +5,13 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 
+/* initializer 가져오기 */
+#include "vm/anon.h"
+#include "vm/file.h"
+#include "include/filesys/page_cache.h"
+#include "vm/uninit.h"
+
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -41,6 +48,8 @@ static struct frame *vm_evict_frame (void);
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
+/* 초기화자를 사용하여 대기 중인 페이지 객체(uninit)를 생성합니다. 
+	페이지를 생성하려면 이 함수나 `vm_alloc_page`를 통해 직접 생성하지 마세요.*/
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
@@ -50,12 +59,30 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* Check wheter the upage is already occupied or not. */
-	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
+	if (spt_find_page (spt, upage) == NULL) { //spt에 va에 해당하는 페이지가 없으면
+		/* TODO: 페이지를 생성하고, VM 유형에 따라 이니셜을 가져옵니다,
+		 * TODO: 그 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다.
+		 * TODO: uninit_new를 호출한 후에 해당 필드를 수정해야 합니다. */
 
-		/* TODO: Insert the page into the spt. */
+		struct page *page = malloc(sizeof(struct page));
+		
+		/* 각 타입마다 다른 initializer 할당하기 */
+		switch (type)
+		{
+		case VM_UNINIT:// 이것도 넣어야함?
+			uninit_new (page, upage, init, type, aux, uninit_initialize(page, type, upage)); //load segment에서 나옴
+			break;
+		case VM_ANON:
+			uninit_new (page, upage, init, type, aux, anon_initializer(page, type, upage));
+			break;
+		case VM_FILE:
+			uninit_new (page, upage, init, type, aux, file_backed_initializer(page, type, upage));
+			break;
+		case VM_PAGE_CACHE:
+			uninit_new (page, upage, init, type, aux, page_cache_initializer(page, type, upage));
+			break;
+		}
+		return true;
 	}
 err:
 	return false;
