@@ -42,6 +42,14 @@ fork_info{
 	bool success;
 };
 
+struct 
+vm_entry{
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+	off_t ofs;
+	struct file *file;
+}
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -903,6 +911,38 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	struct vm_entry vm_entry = aux;
+
+	size_t page_read_bytes = vm_entry->page_read_bytes;
+	size_t page_zero_bytes = vm_entry -> page_zero_bytes;
+	off_t ofs = vm_entry -> ofs;
+	struct file *file = vm_entry -> file;
+
+	/* Get a page of memory. */
+	//file의 위치 초기화
+	file_seek(file, ofs);
+	//페이지 할당해서 파일내용을 로딩하기
+	uint8_t *kpage = palloc_get_page (PAL_USER);
+	if (kpage == NULL)
+		return false;
+
+	/* Load this page. */
+	if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
+		palloc_free_page (kpage);
+		return false;
+	}
+	//남은 부분은 0바이트로 패딩하기
+	memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+	/* Add the page to the process's address space. */
+	// pml4 매핑
+	if (!install_page (page, kpage, writable)) {
+		printf("fail\n");
+		palloc_free_page (kpage);
+		return false;
+	}
+
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -919,7 +959,8 @@ lazy_load_segment (struct page *page, void *aux) {
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
-/*FILE의 오프셋 OFS부터 시작하는 세그먼트를 UPAGE 주소로 로드합니다.  총 READ_BYTES + ZERO_BYTES 바이트의 가상 메모리가 다음과 같이 초기화됩니다:
+/*FILE의 오프셋 OFS부터 시작하는 세그먼트를 UPAGE 주소로 로드합니다.  
+총 READ_BYTES + ZERO_BYTES 바이트의 가상 메모리가 다음과 같이 초기화됩니다:
 - READ_BYTES 바이트는 FILE의 OFS 오프셋부터 읽어야 합니다.
 - UPAGE와 READ_BYTES 사이의 ZERO_BYTES 바이트는 0으로 초기화되어야 합니다.
  
@@ -941,7 +982,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
+		struct vm_entry *vm_entry_addr = malloc(sizeof(struct vm_entry));
+		vm_entry_addr->page_read_bytes = page_read_bytes;
+		vm_entry_addr->page_zero_bytes = page_zero_bytes;
+		vm_entry_addr->ofs = ofs;
+		vm_entry_addr->file = file;
+
+
+		struct vm_entry *aux = vm_entry_addr;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux))
 			return false;
@@ -950,6 +998,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
