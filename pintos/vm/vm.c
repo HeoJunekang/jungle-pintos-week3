@@ -66,23 +66,37 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: 페이지를 생성하고, VM 유형에 따라 이니셜을 가져옵니다,
 		 * TODO: 그 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다.
 		 * TODO: uninit_new를 호출한 후에 해당 필드를 수정해야 합니다. */
-
+ 
 		struct page *page = malloc(sizeof(struct page));
+		if(page == NULL){
+			goto err;
+		}
 		
+		bool (*initializer)(struct page *, enum vm_type, void *);
+
 		/* 각 타입마다 다른 initializer 할당하기 */
 		switch (type)
 		{
 		case VM_ANON:
-			uninit_new (page, upage, init, type, aux, anon_initializer);
+			initializer = anon_initializer;
 			break;
 		case VM_FILE:
-			uninit_new (page, upage, init, type, aux, file_backed_initializer);
+			initializer = file_backed_initializer;
 			break;
 		// case VM_PAGE_CACHE:
 		// 	uninit_new (page, upage, init, type, aux, page_cache_initializer);
 		// 	break;
+		default:
+			free(page);
+			goto err;
+		break;
 		}
-		spt_insert_page(spt, page);
+		
+		uninit_new (page, upage, init, type, aux, anon_initializer);
+		if(!spt_insert_page(spt, page)){
+			free(page);
+			goto err;
+		}
 		return true;
 	}
 err:
