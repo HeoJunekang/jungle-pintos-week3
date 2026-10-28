@@ -28,7 +28,7 @@ vm_init (void) {
 
 /* Get the type of the page. This function is useful if you want to know the
  * type of the page after it will be initialized.
- * This function is fully implemented now. */  s
+ * This function is fully implemented now. */ 
 enum vm_type
 page_get_type (struct page *page) {
 	int ty = VM_TYPE (page->operations->type);
@@ -92,7 +92,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		break;
 		}
 		
-		uninit_new (page, upage, init, type, aux, anon_initializer);
+		uninit_new (page, upage, init, type, aux, initializer);
 		if(!spt_insert_page(spt, page)){
 			free(page);
 			goto err;
