@@ -993,17 +993,22 @@ static bool
 setup_stack (struct intr_frame *if_) {
 	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
-	
 
 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-	// if(!vm_claim_page()){
-	// 	return false;
-	// }
-	// if_->rsp = USER_STACK;
-
-	// return success;
+	if(!vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, 1)){ //spt 매핑 //왜 marker_0?
+		return false;
+	}
+	if(!vm_claim_page(stack_bottom)){						// pml4 매핑
+		return false;
+	}
+	
+	if_->rsp = USER_STACK;
+	struct thread *curr = thread_current();
+	curr -> user_stack_bottom = stack_bottom;
+	
+	return success;
 }
 #endif /* VM */
