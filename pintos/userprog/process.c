@@ -902,42 +902,27 @@ install_page (void *upage, void *kpage, bool writable) {
 			&& pml4_set_page (t->pml4, upage, kpage, writable));
 }
 #else
-struct setup_aux{
-	size_t page_read_bytes;
-	size_t page_zero_bytes;
-	//bool writable;
-	off_t ofs;
-	struct file *file;
 
-};
 static bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
 	struct vm_entry *vm_entry = (struct vm_entry*) aux;
-
-	size_t page_read_bytes = vm_entry->page_read_bytes;
-	size_t page_zero_bytes = vm_entry -> page_zero_bytes;
-	off_t ofs = vm_entry -> ofs;
-	struct file *file = vm_entry -> file;
-
-	/* Get a page of memory. */
-	//file의 위치 초기화
-	file_seek(file, ofs);
-	//페이지 할당해서 파일내용을 로딩하기
+	struct file *read_file = vm_entry -> file;
 	
-	if (page->frame->kva== NULL)
-		return false;
+	//페이지 할당해서 파일내용을 로딩하기
+	off_t read_byte = file_read_at(read_file, page->frame->kva, vm_entry->page_read_bytes,
+		vm_entry->ofs);
 
-	/* Load this page. */
-	if (file_read (file, page->frame->kva, page_read_bytes) != (int) page_read_bytes) {
-		palloc_free_page (page->frame->kva);
+	if (read_byte != (off_t)vm_entry->page_read_bytes) {
 		return false;
 	}
-	//남은 부분은 0바이트로 패딩하기
-	memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
 
+	//남은 부분은 0바이트로 패딩하기
+	memset (page->frame->kva + vm_entry-> page_read_bytes, 0, vm_entry-> page_zero_bytes);
+
+	free(vm_entry);
 	return true;
 }
 
@@ -984,7 +969,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
 		aux->ofs = ofs;
-		aux->file = file_reopen(file);
+		aux->file = file_reopen(file);//file의 위치 초기화
 
 		if (!vm_alloc_page_with_initializer (VM_ANON,
 			upage,
