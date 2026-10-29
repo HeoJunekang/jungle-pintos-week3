@@ -515,7 +515,7 @@ process_exit (void) {
 		for (int i= 0; i<FILE_MAX; i++){
 			if (curr->fdt[i] != NULL){
 				if (curr->fdt[i]->share == 1){
-					if (curr->fdt[i]->fT == FILE){
+					if (curr->fdt[i]->fT == FD_FILE){
 						file_close(curr -> fdt[i]->file);
 					}
 					free(curr->fdt[i]);
@@ -902,10 +902,14 @@ install_page (void *upage, void *kpage, bool writable) {
 			&& pml4_set_page (t->pml4, upage, kpage, writable));
 }
 #else
-/* From here, codes will be used after project 3.
- * If you want to implement the function for only project 2, implement it on the
- * upper block. */
+struct setup_aux{
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+	//bool writable; 항상 true
+	off_t ofs;
+	struct file *file;
 
+};
 static bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
@@ -1024,7 +1028,10 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-	
+	if(!vm_claim_page()){
+		return false;
+	}
+	if_->rsp = USER_STACK;
 
 	return success;
 }
