@@ -5,6 +5,12 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 
+/* initializer 가져오기 */
+#include "vm/anon.h"
+#include "vm/file.h"
+#include "include/filesys/page_cache.h"
+#include "vm/uninit.h"
+
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -22,6 +28,7 @@ vm_init (void) {
 
 /* Get the type of the page. This function is useful if you want to know the
  * type of the page after it will be initialized.
+ * This function is fully implemented now. */ 
  * This function is fully implemented now. */  
 enum vm_type
 page_get_type (struct page *page) {
@@ -42,6 +49,11 @@ static struct frame *vm_evict_frame (void);
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
+/* 초기화자를 사용하여 대기 중인 페이지 객체(uninit)를 생성합니다. 
+	페이지를 생성하려면 이 함수나 `vm_alloc_page`를 통해 직접 생성하지 마세요.*/
+
+	//받아온 타입을 가진 uninit page를 생성해줌.
+	//그리고 spt에 넣어줌.
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
@@ -83,7 +95,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			goto err;
 		}
 		return true;
-		
 	}
 err:
 	return false;
