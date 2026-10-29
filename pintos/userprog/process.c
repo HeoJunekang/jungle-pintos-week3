@@ -507,7 +507,7 @@ process_exit (void) {
 		for (int i= 0; i<FILE_MAX; i++){
 			if (curr->fdt[i] != NULL){
 				if (curr->fdt[i]->share == 1){
-					if (curr->fdt[i]->fT == FILE){
+					if (curr->fdt[i]->fT == FD_FILE){
 						file_close(curr -> fdt[i]->file);
 					}
 					free(curr->fdt[i]);
