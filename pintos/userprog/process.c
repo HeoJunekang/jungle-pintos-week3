@@ -22,7 +22,7 @@
 #include "threads/synch.h"
 #include "lib/kernel/list.h"
 #include "threads/malloc.h"
-
+#define VM
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -40,6 +40,14 @@ fork_info{
 	struct intr_frame parent_if_;
 	struct semaphore sema;
 	bool success;
+};
+
+struct 
+vm_entry{
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+	off_t ofs;
+	struct file *file;
 };
 
 /* General process initializer for initd and other process. */
@@ -507,7 +515,7 @@ process_exit (void) {
 		for (int i= 0; i<FILE_MAX; i++){
 			if (curr->fdt[i] != NULL){
 				if (curr->fdt[i]->share == 1){
-					if (curr->fdt[i]->fT == FILE){
+					if (curr->fdt[i]->fT == FD_FILE){
 						file_close(curr -> fdt[i]->file);
 					}
 					free(curr->fdt[i]);
@@ -894,15 +902,28 @@ install_page (void *upage, void *kpage, bool writable) {
 			&& pml4_set_page (t->pml4, upage, kpage, writable));
 }
 #else
-/* From here, codes will be used after project 3.
- * If you want to implement the function for only project 2, implement it on the
- * upper block. */
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	struct vm_entry *vm_entry = (struct vm_entry*) aux;
+	struct file *read_file = vm_entry -> file;
+	
+	//페이지 할당해서 파일내용을 로딩하기
+	off_t read_byte = file_read_at(read_file, page->frame->kva, vm_entry->page_read_bytes,
+		vm_entry->ofs);
+
+	if (read_byte != (off_t)vm_entry->page_read_bytes) {
+		return false;
+	}
+
+	//남은 부분은 0바이트로 패딩하기
+	memset (page->frame->kva + vm_entry-> page_read_bytes, 0, vm_entry-> page_zero_bytes);
+
+	free(vm_entry);
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -919,6 +940,14 @@ lazy_load_segment (struct page *page, void *aux) {
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
+/*FILE의 오프셋 OFS부터 시작하는 세그먼트를 UPAGE 주소로 로드합니다.  
+총 READ_BYTES + ZERO_BYTES 바이트의 가상 메모리가 다음과 같이 초기화됩니다:
+- READ_BYTES 바이트는 FILE의 OFS 오프셋부터 읽어야 합니다.
+- UPAGE와 READ_BYTES 사이의 ZERO_BYTES 바이트는 0으로 초기화되어야 합니다.
+ 
+이 함수로 초기화된 페이지는 WRITABLE이 true일 경우 사용자 프로세스가 쓰기 가능해야 하며, 그렇지 않으면 읽기 전용이어야 합니다.
+
+메모리 할당 오류나 디스크 읽기 오류가 발생하면 false를 반환하고, 성공하면 true를 반환합니다.*/
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
@@ -934,15 +963,27 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
-			return false;
+		struct vm_entry *aux = malloc(sizeof(struct vm_entry));
+		if(aux == NULL) return false;
 
+		aux->page_read_bytes = page_read_bytes;
+		aux->page_zero_bytes = page_zero_bytes;
+		aux->ofs = ofs;
+		aux->file = file_reopen(file);//file의 위치 초기화
+
+		if (!vm_alloc_page_with_initializer (VM_ANON,
+			upage,
+			writable,
+			lazy_load_segment,
+			aux)){
+
+				return false;
+			}
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
@@ -952,12 +993,17 @@ static bool
 setup_stack (struct intr_frame *if_) {
 	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
+	
 
 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
+	// if(!vm_claim_page()){
+	// 	return false;
+	// }
+	// if_->rsp = USER_STACK;
 
-	return success;
+	// return success;
 }
 #endif /* VM */

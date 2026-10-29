@@ -5,6 +5,13 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 
+/* initializer 가져오기 */
+#include "vm/anon.h"
+#include "vm/file.h"
+#include "include/filesys/page_cache.h"
+#include "vm/uninit.h"
+
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -21,7 +28,7 @@ vm_init (void) {
 
 /* Get the type of the page. This function is useful if you want to know the
  * type of the page after it will be initialized.
- * This function is fully implemented now. */  s
+ * This function is fully implemented now. */
 enum vm_type
 page_get_type (struct page *page) {
 	int ty = VM_TYPE (page->operations->type);
@@ -41,6 +48,11 @@ static struct frame *vm_evict_frame (void);
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
+/* 초기화자를 사용하여 대기 중인 페이지 객체(uninit)를 생성합니다. 
+	페이지를 생성하려면 이 함수나 `vm_alloc_page`를 통해 직접 생성하지 마세요.*/
+
+	//받아온 타입을 가진 uninit page를 생성해줌.
+	//그리고 spt에 넣어줌.
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
@@ -54,8 +66,34 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
+		struct page* page = malloc(sizeof(struct page));
+		if(page == NULL){
+			goto err;
+		}
+		bool (*initializer)(struct page *, enum vm_type, void *);
+
+		switch(VM_TYPE(type)){
+			case VM_ANON:
+				initializer = anon_initializer;
+				break;
+			case VM_FILE:
+				initializer = file_backed_initializer;
+				break;
+			//case VM_PAGE_CACHE: implement when we need
+			default:
+				free(page);
+				goto err;
+				break;
+		}
+		uninit_new(page, upage, init, type, aux, initializer);
+		page->writable = writable;
 
 		/* TODO: Insert the page into the spt. */
+		if(!spt_insert_page(spt, page)){
+			free(page);
+			goto err;
+		}
+		return true;
 	}
 err:
 	return false;
@@ -135,7 +173,7 @@ vm_get_frame (void) {
 		list_init(&frame_table);
 	}
 	list_push_back(&frame_table, &frame->frame_table_elem);
-	
+
 	ASSERT (frame->page == NULL);
 	return frame;
 }
@@ -158,11 +196,26 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-
+	//받은 주소가 없거나 커널 가상주소일경우 접근 제한
+	if(addr == NULL || is_kernel_vaddr(addr)){
+		return false;
+	}
+	//패이지가 있는데 쓰기 권한이 없는 경우
+	if(!not_present&&write){
+		return false;
+	}
+	//위 경우포함해서 가상 주소가 spt에 있는데 권한이 유효한 경우 페이지 할당
+	page = spt_find_page(spt, pg_round_down(addr));
+	if(page != NULL){
+		return vm_do_claim_page(page);
+	}
+	/*stack growth*/
+	//uintptr_t user_rsp = user ? f->rsp ...
 	
+	return false;
 
-	return vm_do_claim_page (page);
 }
+
 
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
@@ -175,7 +228,7 @@ vm_dealloc_page (struct page *page) {
 /* Claim the page that allocate on VA. */
 bool
 vm_claim_page (void *va UNUSED) {
-	struct page *page = spt_find_page(thread_current()->spt, va);
+	struct page *page = spt_find_page(&thread_current()->spt, va);
 	if(page == NULL){
 		return false;
 	}
@@ -191,8 +244,7 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if(
-		!pml4_set_page(thread_current()->pml4, page, frame,
-	 is_writeable(pml4e_walk (thread_current()->pml4, (uint64_t) page, 1)))) // 1?0
+		!pml4_set_page(&thread_current()->pml4, page, frame,1)) // 1?0
 	 {
 		return false;
 	 }
