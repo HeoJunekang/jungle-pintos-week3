@@ -22,7 +22,7 @@
 #include "threads/synch.h"
 #include "lib/kernel/list.h"
 #include "threads/malloc.h"
-
+#define VM
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -905,7 +905,7 @@ install_page (void *upage, void *kpage, bool writable) {
 struct setup_aux{
 	size_t page_read_bytes;
 	size_t page_zero_bytes;
-	//bool writable; 항상 true
+	//bool writable;
 	off_t ofs;
 	struct file *file;
 
@@ -915,7 +915,7 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
-	struct vm_entry vm_entry = aux;
+	struct vm_entry *vm_entry = (struct vm_entry*) aux;
 
 	size_t page_read_bytes = vm_entry->page_read_bytes;
 	size_t page_zero_bytes = vm_entry -> page_zero_bytes;
@@ -926,25 +926,17 @@ lazy_load_segment (struct page *page, void *aux) {
 	//file의 위치 초기화
 	file_seek(file, ofs);
 	//페이지 할당해서 파일내용을 로딩하기
-	uint8_t *kpage = palloc_get_page (PAL_USER);
-	if (kpage == NULL)
+	
+	if (page->frame->kva== NULL)
 		return false;
 
 	/* Load this page. */
-	if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
-		palloc_free_page (kpage);
+	if (file_read (file, page->frame->kva, page_read_bytes) != (int) page_read_bytes) {
+		palloc_free_page (page->frame->kva);
 		return false;
 	}
 	//남은 부분은 0바이트로 패딩하기
-	memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-	/* Add the page to the process's address space. */
-	// pml4 매핑
-	if (!install_page (page, kpage, writable)) {
-		printf("fail\n");
-		palloc_free_page (kpage);
-		return false;
-	}
+	memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
 
 	return true;
 }
@@ -986,18 +978,22 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		struct vm_entry *vm_entry_addr = malloc(sizeof(struct vm_entry));
-		vm_entry_addr->page_read_bytes = page_read_bytes;
-		vm_entry_addr->page_zero_bytes = page_zero_bytes;
-		vm_entry_addr->ofs = ofs;
-		vm_entry_addr->file = file;
+		struct vm_entry *aux = malloc(sizeof(struct vm_entry));
+		if(aux == NULL) return false;
 
+		aux->page_read_bytes = page_read_bytes;
+		aux->page_zero_bytes = page_zero_bytes;
+		aux->ofs = ofs;
+		aux->file = file_reopen(file);
 
-		struct vm_entry *aux = vm_entry_addr;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
-			return false;
-
+		if (!vm_alloc_page_with_initializer (VM_ANON,
+			upage,
+			writable,
+			lazy_load_segment,
+			aux)){
+				
+				return false;
+			}
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
