@@ -186,11 +186,26 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-
+	//받은 주소가 없거나 커널 가상주소일경우 접근 제한
+	if(addr == NULL || is_kernel_vaddr(addr)){
+		return false;
+	}
+	//패이지가 있는데 쓰기 권한이 없는 경우
+	if(!not_present&&write){
+		return false;
+	}
+	//위 경우포함해서 가상 주소가 spt에 있는데 권한이 유효한 경우 페이지 할당
+	page = spt_find_page(spt, pg_round_down(addr));
+	if(page != NULL){
+		return vm_do_claim_page(page);
+	}
+	/*stack growth*/
+	//uintptr_t user_rsp = user ? f->rsp ...
 	
+	return false;
 
-	return vm_do_claim_page (page);
 }
+
 
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
