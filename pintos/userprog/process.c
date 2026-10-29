@@ -48,7 +48,7 @@ vm_entry{
 	size_t page_zero_bytes;
 	off_t ofs;
 	struct file *file;
-}
+};
 
 /* General process initializer for initd and other process. */
 static void
@@ -991,7 +991,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 			writable,
 			lazy_load_segment,
 			aux)){
-				
+
 				return false;
 			}
 		/* Advance. */
@@ -1014,11 +1014,11 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-	if(!vm_claim_page()){
-		return false;
-	}
-	if_->rsp = USER_STACK;
+	// if(!vm_claim_page()){
+	// 	return false;
+	// }
+	// if_->rsp = USER_STACK;
 
-	return success;
+	// return success;
 }
 #endif /* VM */
