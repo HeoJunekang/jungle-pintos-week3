@@ -1008,11 +1008,23 @@ static bool
 setup_stack (struct intr_frame *if_) {
 	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
+	uint8_t *kpage;
 
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
+	struct page *page;
+
+	kpage = palloc_get_page (PAL_USER | PAL_ZERO); //페이지 할당(스택용)
+	if (kpage != NULL) {
+		success = install_page (stack_bottom, kpage, true);  //pml4 로딩
+	}
+	if(success){
+		if_->rsp = (uintptr_t*) USER_STACK; //set the rsp
+	}
+
+	/* TODO: stack_bottom에 스택을 매핑하고 페이지를 즉시 가져옵니다.
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
+	
 
 	return success;
 }
