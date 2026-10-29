@@ -28,7 +28,8 @@ vm_init (void) {
 
 /* Get the type of the page. This function is useful if you want to know the
  * type of the page after it will be initialized.
- * This function is fully implemented now. */
+ * This function is fully implemented now. */ 
+
 enum vm_type
 page_get_type (struct page *page) {
 	int ty = VM_TYPE (page->operations->type);
@@ -181,7 +182,18 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
-}
+	//addr는 폴트 헨들러 함수에서 커널이 아님을 검사했기 때문에 uva일 것이다
+	if(vm_alloc_page(VM_ANON|VM_MARKER_0, addr, 1)){
+		//stack 할당 해줬으니 프로세스 스텍 최대치 증가
+		thread_current()->user_stack_bottom
+	}
+
+	//va = kva 매핑
+	if(vm_claim_page(addr)){
+		//무슨 예외처리?
+	}
+
+}	
 
 /* Handle the fault on write_protected page */
 static bool
@@ -192,10 +204,12 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+
 	//받은 주소가 없거나 커널 가상주소일경우 접근 제한
 	if(addr == NULL || is_kernel_vaddr(addr)){
 		return false;
@@ -208,9 +222,13 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	page = spt_find_page(spt, pg_round_down(addr));
 	if(page != NULL){
 		return vm_do_claim_page(page);
-	}
-	/*stack growth*/
-	//uintptr_t user_rsp = user ? f->rsp ...
+	}else{
+		//stack growth가 맞는지  다른 처리 가 필요한지
+		if(thread_current()->rsp < f->rsp) return false; //page fault의 rsp가 현제 찍고있는 rsp가 낮을경우
+		if(f->rsp < ULIMIT) return false; //user stack 아래를 rsp가 찍을 경우 ULIMIT = USER_STACK - (1<<20)
+		vm_stack_growth(addr);
+
+		return 1;//후 과제 vm_stack_growth 이후  true 가 맞긴 한거 같은데
 	
 	return false;
 

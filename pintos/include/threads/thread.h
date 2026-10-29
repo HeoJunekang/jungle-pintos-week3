@@ -112,6 +112,7 @@ struct thread {
 
 	/* user stack stack bottom */
 	uintptr_t user_stack_bottom;
+	uintptr_t rsp;
 	
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -128,6 +129,7 @@ struct thread {
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+
 #endif
 
 	/* Owned by thread.c. */

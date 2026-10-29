@@ -56,4 +56,6 @@
 	((uint64_t) (vaddr) - (uint64_t) KERN_BASE);\
 })
 
+#define ULIMIT USER_STACK - (1<<20)
+
 #endif /* threads/vaddr.h */
