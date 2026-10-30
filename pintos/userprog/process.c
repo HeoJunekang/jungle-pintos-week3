@@ -42,13 +42,6 @@ fork_info{
 	bool success;
 };
 
-struct 
-vm_entry{
-	size_t page_read_bytes;
-	size_t page_zero_bytes;
-	off_t ofs;
-	struct file *file;
-};
 
 /* General process initializer for initd and other process. */
 static void
@@ -361,6 +354,7 @@ process_exec (void *f_name) {
 	struct thread *t = thread_current();
 
 	/* We first kill the current context */
+	//여기서 spt를 선언해줘야 한다.
 	process_cleanup ();
 
 	/* And then load the binary */

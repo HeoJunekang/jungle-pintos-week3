@@ -10,6 +10,7 @@
 #include "vm/file.h"
 #include "include/filesys/page_cache.h"
 #include "vm/uninit.h"
+#include "userprog/process.h"
 
 struct list frame_table;
 
@@ -298,6 +299,76 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
+	//src-> dst
+	//spt_init함수 로직을 사용해서 dst기본 정보 넣기
+	//원본 page 순회하면서(iterator) 
+	//page내용 복사(alloc initializer)(type 정보는 원본페이지에서 꺼내서 넣어주기) ->uninit상태
+	//do_claim 호출해서 접근된 페이지 만들기(이것도 원본 페이지 확인)
+
+	/* 페이지 찾는 로직 */
+	struct page *page = NULL;
+	struct hash_iterator par;
+
+	hash_first(&par, &src->spt_hash);
+	while (hash_next(&par))
+	{
+		struct page *page = hash_entry(hash_cur(&par), struct page, elem); // 부모 spt 페이지 순회하면서 찾음
+		
+		//부모 페이지에서 정보와 초기화 이후 타입을 가져와서 넣음(initailizer에 넘기기)
+		//spt에 올리면 //현재 쓰레드에서 spt를 받기에 dst에 올라감
+
+		switch (page->operations->type)
+		{
+		case VM_UNINIT:
+		/* src의 aux가져오기 */
+			struct vm_entry *src_aux = page -> uninit.aux;
+			struct vm_entry *dst_aux = malloc(sizeof(struct vm_entry));
+
+			dst_aux->page_read_bytes = src_aux->page_read_bytes;
+			dst_aux->page_zero_bytes = src_aux->page_zero_bytes;
+			dst_aux->ofs = src_aux->ofs;
+			dst_aux->file = src_aux->file;
+
+			vm_alloc_page_with_initializer (page_get_type(page), page -> va, page->writable, page -> uninit.init, dst_aux);
+			break;
+			// 부모 페이지의 타입이 uninit이 아니면 메모리 할당  :할당 이유 한번 접근이 되었으면 메모리든 swap공간이든 감
+		case VM_ANON:
+			if(!vm_alloc_page(VM_ANON, page -> va, page->writable)){
+				return false;
+			}
+
+			struct page *child_page_anon = spt_find_page(dst, page->va);
+			if(!vm_claim_page(page -> va)){
+				return false;
+			}
+
+			/* 부모페이지 내용 자식 페이지에 복사 */
+			//page가 swap 공간에 있다면..? ->swapin-out해서 가져옴
+			//깊은 복사를 해야함
+			//frame의 kva
+			memcpy(child_page_anon->frame->kva, page->frame->kva, PGSIZE);
+			break;
+		case VM_FILE:
+			if(!vm_alloc_page(VM_FILE, page -> va, page->writable)){
+				return false;
+			}
+
+			struct page *child_page_file = spt_find_page(dst, page->va);
+			//물리 프레임 확보, frame에 올리고, Pml4매핑
+			if(!vm_claim_page(page -> va)){
+				return false;
+			}
+
+			memcpy(child_page_file->frame->kva, page->frame->kva, PGSIZE);
+			break;
+		// case VM_UNINIT:
+		// 	/* code */
+		// 	break;		
+		default:
+			return false;
+		}
+	}
+	return true;
 }
 
 /* Free the resource hold by the supplemental page table */

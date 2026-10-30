@@ -3,6 +3,14 @@
 
 #include "threads/thread.h"
 
+struct 
+vm_entry{
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+	off_t ofs;
+	struct file *file;
+};
+
 tid_t process_create_initd (const char *file_name);
 tid_t process_fork (const char *name, struct intr_frame *if_);
 int process_exec (void *f_name);
