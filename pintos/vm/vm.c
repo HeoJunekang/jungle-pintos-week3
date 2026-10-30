@@ -375,5 +375,13 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
-	 * TODO: writeback all the modified contents to the storage. */
+	 * TODO: 수정된 모든 내용을 저장소에 다시 씁니다. */
+
+	hash_destroy(&spt->spt_hash, destructor);
+}
+
+void
+destructor (struct hash_elem *e, void *aux){
+	struct page *spt_page = hash_entry(e, struct page, elem);
+	vm_dealloc_page(spt_page); 
 }
