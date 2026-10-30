@@ -22,7 +22,7 @@
 #include "threads/synch.h"
 #include "lib/kernel/list.h"
 #include "threads/malloc.h"
-#define VM
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -650,8 +650,6 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
-
-
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
@@ -1009,6 +1007,6 @@ setup_stack (struct intr_frame *if_) {
 	struct thread *curr = thread_current();
 	curr -> user_stack_bottom = stack_bottom;
 	
-	return success;
+	return true;
 }
 #endif /* VM */

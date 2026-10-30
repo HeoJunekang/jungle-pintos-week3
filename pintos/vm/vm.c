@@ -11,6 +11,8 @@
 #include "include/filesys/page_cache.h"
 #include "vm/uninit.h"
 
+struct list frame_table;
+
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -24,11 +26,13 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init(&frame_table);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
  * type of the page after it will be initialized.
- * This function is fully implemented now. */
+ * This function is fully implemented now. */ 
+
 enum vm_type
 page_get_type (struct page *page) {
 	int ty = VM_TYPE (page->operations->type);
@@ -105,11 +109,11 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: Fill this function. */
 	struct hash_iterator cur;
-	hash_first(&cur, spt->spt_hash);
+	hash_first(&cur, &spt->spt_hash);
 	while (hash_next(&cur))
 	{
 		struct page *page = hash_entry(hash_cur(&cur), struct page, elem);
-		if(page->va == va) return page;
+		if(page->va == pg_round_down(va)) return page;
 	}
 
 	return page;
@@ -121,7 +125,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	int succ = false;
 	/* TODO: Fill this function. */
-	struct hash_elem *insert_hash_elem = hash_insert (spt -> spt_hash, &page -> elem);
+	struct hash_elem *insert_hash_elem = hash_insert (&spt -> spt_hash, &page -> elem);
 	if (insert_hash_elem == NULL)
 	{
 		succ = true;
@@ -162,26 +166,37 @@ vm_evict_frame (void) {
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = malloc(sizeof(struct frame));
-	ASSERT (frame != NULL);
-	frame->kva = palloc_get_page(PAL_ZERO||PAL_USER);
+	if(frame == NULL){
+		return NULL;
+	}
+	frame->page = NULL;
+	frame->kva = palloc_get_page(PAL_USER|PAL_ZERO);
+
 	if(frame->kva == NULL){
-		//userpool full so eviction must implement
-		PANIC("todo");
+		free(frame);
+		return NULL;
 	}
 	
-	if(list_empty(&frame_table)){
-		list_init(&frame_table);
-	}
 	list_push_back(&frame_table, &frame->frame_table_elem);
 
-	ASSERT (frame->page == NULL);
 	return frame;
 }
 
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
-}
+	//addr는 폴트 헨들러 함수에서 커널이 아님을 검사했기 때문에 uva일 것이다
+	if(vm_alloc_page(VM_ANON|VM_MARKER_0, pg_round_down(addr), 1)){
+		//stack 할당 해줬으니 프로세스 스텍 최대치 증가
+		thread_current()->user_stack_bottom += PGSIZE ;
+	}
+
+	//va = kva 매핑
+	if(vm_claim_page(addr)){
+		//무슨 예외처리?
+	}
+
+}	
 
 /* Handle the fault on write_protected page */
 static bool
@@ -192,10 +207,12 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+
 	//받은 주소가 없거나 커널 가상주소일경우 접근 제한
 	if(addr == NULL || is_kernel_vaddr(addr)){
 		return false;
@@ -208,10 +225,14 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	page = spt_find_page(spt, pg_round_down(addr));
 	if(page != NULL){
 		return vm_do_claim_page(page);
+	}else{
+		//stack growth가 맞는지  다른 처리 가 필요한지
+		if(thread_current()->rsp < f->rsp) return false; //page fault의 rsp가 현제 찍고있는 rsp가 낮을경우
+		if(f->rsp < ULIMIT) return false; //user stack 아래를 rsp가 찍을 경우 ULIMIT = USER_STACK - (1<<20)
+		vm_stack_growth(addr);
+
+		return 1;//후 과제 vm_stack_growth 이후  true 가 맞긴 한거 같은데
 	}
-	/*stack growth*/
-	//uintptr_t user_rsp = user ? f->rsp ...
-	
 	return false;
 
 }
@@ -244,7 +265,7 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if(
-		!pml4_set_page(&thread_current()->pml4, page, frame,1)) // 1?0
+		!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable))
 	 {
 		return false;
 	 }
@@ -256,22 +277,21 @@ vm_do_claim_page (struct page *page) {
 uint64_t 
 spt_hash_function (const struct hash_elem *e, void *aux){
 	struct page *hash_page = hash_entry(e, struct page, elem);
-	return hash_bytes(hash_page->va, sizeof(void *));
+	return hash_bytes(&hash_page->va, sizeof(void *));
 }
 
 bool
 spt_less_function(const struct hash_elem *a, const struct hash_elem *b, void *aux){
 	struct page *pa = hash_entry(a, struct page, elem);
 	struct page *pb = hash_entry(b, struct page, elem);
-	uint64_t pa_bytes = hash_bytes(pa->va, sizeof(void *));
-	uint64_t pb_bytes = hash_bytes(pb->va, sizeof(void *));
 
-	return pa_bytes < pb_bytes;
+	return  (uintptr_t)pa->va < (uintptr_t)pb->va;
 }
 
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
-	hash_init(spt->spt_hash, spt_hash_function, spt_less_function, NULL);
+	bool success = hash_init(&spt->spt_hash, spt_hash_function, spt_less_function, NULL);
+	ASSERT(success);
 }
 
 /* Copy supplemental page table from src to dst */
