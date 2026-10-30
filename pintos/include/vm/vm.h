@@ -62,7 +62,8 @@ struct page {
 	};
 };
 
-struct list frame_table;
+/* Link 과정에서 두번 정의 됨 그래서 extern */
+extern struct list frame_table;
 
 /* The representation of "frame" */
 struct frame {

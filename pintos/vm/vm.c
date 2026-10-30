@@ -11,6 +11,7 @@
 #include "include/filesys/page_cache.h"
 #include "vm/uninit.h"
 
+struct list frame_table;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -58,7 +59,7 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	ASSERT (VM_TYPE(type) != VM_UNINIT);
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
@@ -185,7 +186,7 @@ vm_stack_growth (void *addr UNUSED) {
 	//addr는 폴트 헨들러 함수에서 커널이 아님을 검사했기 때문에 uva일 것이다
 	if(vm_alloc_page(VM_ANON|VM_MARKER_0, addr, 1)){
 		//stack 할당 해줬으니 프로세스 스텍 최대치 증가
-		thread_current()->user_stack_bottom
+		thread_current()->user_stack_bottom;
 	}
 
 	//va = kva 매핑
@@ -228,10 +229,9 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		if(f->rsp < ULIMIT) return false; //user stack 아래를 rsp가 찍을 경우 ULIMIT = USER_STACK - (1<<20)
 		vm_stack_growth(addr);
 
-		return 1;//후 과제 vm_stack_growth 이후  true 가 맞긴 한거 같은데
-	
+		return 0;//후 과제 vm_stack_growth 이후  true 가 맞긴 한거 같은데
+	}
 	return false;
-
 }
 
 
@@ -262,7 +262,7 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if(
-		!pml4_set_page(&thread_current()->pml4, page, frame,1)) // 1?0
+		!pml4_set_page(&thread_current()->pml4, page, frame,1)); // 1?0
 	 {
 		return false;
 	 }

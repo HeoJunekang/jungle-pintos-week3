@@ -22,10 +22,8 @@
 #include "threads/synch.h"
 #include "lib/kernel/list.h"
 #include "threads/malloc.h"
-#define VM
-#ifdef VM
 #include "vm/vm.h"
-#endif
+
 
 #define USERPROG 1
 
