@@ -109,11 +109,11 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: Fill this function. */
 	struct hash_iterator cur;
-	hash_first(&cur, spt->spt_hash);
+	hash_first(&cur, &spt->spt_hash);
 	while (hash_next(&cur))
 	{
 		struct page *page = hash_entry(hash_cur(&cur), struct page, elem);
-		if(page->va == va) return page;
+		if(page->va == pg_round_down(va)) return page;
 	}
 
 	return page;
@@ -125,7 +125,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	int succ = false;
 	/* TODO: Fill this function. */
-	struct hash_elem *insert_hash_elem = hash_insert (spt -> spt_hash, &page -> elem);
+	struct hash_elem *insert_hash_elem = hash_insert (&spt -> spt_hash, &page -> elem);
 	if (insert_hash_elem == NULL)
 	{
 		succ = true;
@@ -166,19 +166,19 @@ vm_evict_frame (void) {
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = malloc(sizeof(struct frame));
-	ASSERT (frame != NULL);
-	frame->kva = palloc_get_page(PAL_ZERO||PAL_USER);
+	if(frame == NULL){
+		return NULL;
+	}
+	frame->page = NULL;
+	frame->kva = palloc_get_page(PAL_USER|PAL_ZERO);
+
 	if(frame->kva == NULL){
-		//userpool full so eviction must implement
-		PANIC("todo");
+		free(frame);
+		return NULL;
 	}
 	
-	if(list_empty(&frame_table)){
-		list_init(&frame_table);
-	}
 	list_push_back(&frame_table, &frame->frame_table_elem);
 
-	ASSERT (frame->page == NULL);
 	return frame;
 }
 
@@ -186,9 +186,9 @@ vm_get_frame (void) {
 static void
 vm_stack_growth (void *addr UNUSED) {
 	//addr는 폴트 헨들러 함수에서 커널이 아님을 검사했기 때문에 uva일 것이다
-	if(vm_alloc_page(VM_ANON|VM_MARKER_0, addr, 1)){
+	if(vm_alloc_page(VM_ANON|VM_MARKER_0, pg_round_down(addr), 1)){
 		//stack 할당 해줬으니 프로세스 스텍 최대치 증가
-		thread_current()->user_stack_bottom
+		thread_current()->user_stack_bottom += PGSIZE ;
 	}
 
 	//va = kva 매핑
@@ -232,7 +232,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		vm_stack_growth(addr);
 
 		return 1;//후 과제 vm_stack_growth 이후  true 가 맞긴 한거 같은데
-	
+	}
 	return false;
 
 }
@@ -265,7 +265,7 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if(
-		!pml4_set_page(&thread_current()->pml4, page, frame,1)) // 1?0
+		!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable))
 	 {
 		return false;
 	 }
@@ -277,22 +277,21 @@ vm_do_claim_page (struct page *page) {
 uint64_t 
 spt_hash_function (const struct hash_elem *e, void *aux){
 	struct page *hash_page = hash_entry(e, struct page, elem);
-	return hash_bytes(hash_page->va, sizeof(void *));
+	return hash_bytes(&hash_page->va, sizeof(void *));
 }
 
 bool
 spt_less_function(const struct hash_elem *a, const struct hash_elem *b, void *aux){
 	struct page *pa = hash_entry(a, struct page, elem);
 	struct page *pb = hash_entry(b, struct page, elem);
-	uint64_t pa_bytes = hash_bytes(pa->va, sizeof(void *));
-	uint64_t pb_bytes = hash_bytes(pb->va, sizeof(void *));
 
-	return pa_bytes < pb_bytes;
+	return  (uintptr_t)pa->va < (uintptr_t)pb->va;
 }
 
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
-	hash_init(spt->spt_hash, spt_hash_function, spt_less_function, NULL);
+	bool success = hash_init(&spt->spt_hash, spt_hash_function, spt_less_function, NULL);
+	ASSERT(success);
 }
 
 /* Copy supplemental page table from src to dst */
