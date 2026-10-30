@@ -357,6 +357,10 @@ process_exec (void *f_name) {
 	//여기서 spt를 선언해줘야 한다.
 	process_cleanup ();
 
+	#ifdef VM
+	supplemental_page_table_init(&thread_current()->spt);
+	#endif
+
 	/* And then load the binary */
 	char* save_ptr;
 	char* buffer;

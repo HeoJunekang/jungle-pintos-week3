@@ -370,6 +370,11 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 	}
 	return true;
 }
+void
+destructor (struct hash_elem *e, void *aux){
+	struct page *spt_page = hash_entry(e, struct page, elem);
+	vm_dealloc_page(spt_page); 
+}
 
 /* Free the resource hold by the supplemental page table */
 void
@@ -380,8 +385,4 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	hash_destroy(&spt->spt_hash, destructor);
 }
 
-void
-destructor (struct hash_elem *e, void *aux){
-	struct page *spt_page = hash_entry(e, struct page, elem);
-	vm_dealloc_page(spt_page); 
-}
+
