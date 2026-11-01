@@ -187,16 +187,15 @@ vm_get_frame (void) {
 static void
 vm_stack_growth (void *addr UNUSED) {
 	//addr는 폴트 헨들러 함수에서 커널이 아님을 검사했기 때문에 uva일 것이다
+	//그리고 스택영역인 것까지 검사 완료
+
 	if(vm_alloc_page(VM_ANON|VM_MARKER_0, pg_round_down(addr), 1)){
 		//stack 할당 해줬으니 프로세스 스텍 최대치 증가
-		thread_current()->user_stack_bottom += PGSIZE ;
+		thread_current()->user_stack_bottom += PGSIZE ; 
+		//pml4매핑
+		vm_claim_page(addr);
 	}
-
-	//va = kva 매핑
-	if(vm_claim_page(addr)){
-		//무슨 예외처리?
-	}
-
+	
 }	
 
 /* Handle the fault on write_protected page */
@@ -209,6 +208,9 @@ bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 
+	//받은 f는 당시의 모드의 상태를 받음. -> 사용자
+	//current intr_frame -> 커널
+
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
@@ -218,21 +220,34 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	if(addr == NULL || is_kernel_vaddr(addr)){
 		return false;
 	}
-	//패이지가 있는데 쓰기 권한이 없는 경우
-	if(!not_present&&write){
+	//페이지가 있는데 쓰기 권한이 없는 경우
+	if(!not_present){
 		return false;
 	}
+
 	//위 경우포함해서 가상 주소가 spt에 있는데 권한이 유효한 경우 페이지 할당
 	page = spt_find_page(spt, pg_round_down(addr));
+
+	
+	
 	if(page != NULL){
+		//쓸건데 못쓰는
+		if(write && page->writable == false){
+			return false;
+		}
 		return vm_do_claim_page(page);
 	}else{
-		//stack growth가 맞는지  다른 처리 가 필요한지
-		if(thread_current()->rsp < f->rsp) return false; //page fault의 rsp가 현제 찍고있는 rsp가 낮을경우
-		if(f->rsp < ULIMIT) return false; //user stack 아래를 rsp가 찍을 경우 ULIMIT = USER_STACK - (1<<20)
-		vm_stack_growth(addr);
+		//페이지 할당 부분이 스택 영역 바깥인 경우 
+		if(pg_round_down(addr) < ULIMIT) return false;
 
-		return 1;//후 과제 vm_stack_growth 이후  true 가 맞긴 한거 같은데
+		//rsp-8부터 스택영역인곳인지 판단
+		if(addr <= USER_STACK && addr >= f->rsp-8){
+			vm_stack_growth(addr);
+		}else{
+			return false; //page fault의 rsp가 현재 찍고있는 rsp가 낮을경우
+		}
+
+		return true;//후 과제 vm_stack_growth 이후  true 가 맞긴 한거 같은데
 	}
 	return false;
 
