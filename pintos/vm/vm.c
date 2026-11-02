@@ -210,8 +210,9 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 
 	//받은 f는 당시의 모드의 상태를 받음. -> 사용자
 	//current intr_frame -> 커널
-
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+	
+	struct thread *thread = thread_current ();
+	struct supplemental_page_table *spt UNUSED = &thread->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
@@ -241,7 +242,13 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		if(pg_round_down(addr) < ULIMIT) return false;
 
 		//rsp-8부터 스택영역인곳인지 판단
-		if(addr <= USER_STACK && addr >= f->rsp-8){
+		uintptr_t use_rsp;
+		use_rsp = f->rsp;
+		//만약 intr_frame이 커널모드일때 rsp thread에 넣은 rsp로 바꿔줌
+		if(f->cs == SEL_KCSEG){
+			use_rsp = thread->rsp;
+		}
+		if(addr <= USER_STACK && addr >= use_rsp-8){
 			vm_stack_growth(addr);
 		}else{
 			return false; //page fault의 rsp가 현재 찍고있는 rsp가 낮을경우

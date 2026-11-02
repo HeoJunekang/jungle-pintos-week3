@@ -14,6 +14,7 @@
 #include "devices/input.h"
 #include "filesys/filesys.h"
 #include "threads/palloc.h"
+#include "include/vm/vm.h"
 
 
 
@@ -55,6 +56,9 @@ syscall_init (void) {
 struct intr_frame *f_data; // 프레임을 집어 넣어야 하는데 인자 개수가 f->R.rdi 하나로 제한되어 전역 변수 선언하여 집어넣음
 void
 syscall_handler (struct intr_frame *f) {
+	struct thread *thread = thread_current();
+	thread -> rsp = f -> rsp;
+
 	switch (f->R.rax) {
 		case SYS_HALT:
 			halt ();
@@ -445,6 +449,12 @@ check_buffer (const void *buffer, unsigned size) {
 		if (!is_user_vaddr (p)){             // 페이지가 사용자 영역이 아니면 커널 메모리 침범이므로 종료
 			exit (-1);
 		}
+		struct thread *thread = thread_current();
+		struct page *page= spt_find_page(&thread->spt, p);
+		if(page == NULL){
+			vm_claim_page(p);
+		}
+
 		if (pml4_get_page (pml4, p) == NULL){
 			exit (-1);
 		}
