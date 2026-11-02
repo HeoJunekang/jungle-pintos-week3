@@ -452,7 +452,10 @@ check_buffer (const void *buffer, unsigned size) {
 		struct thread *thread = thread_current();
 		struct page *page= spt_find_page(&thread->spt, p);
 		if(page == NULL){
-			vm_claim_page(p);
+			if(p <= USER_STACK && p >= thread_current()->rsp-8){
+				return;
+			}
+			exit (-1);
 		}
 
 		if (pml4_get_page (pml4, p) == NULL){
