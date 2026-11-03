@@ -536,5 +536,14 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset){
 
 void 
 munmap (void *addr){
+	struct thread *munmap_thread = thread_current ();
+	struct page *munmap_page = spt_find_page (&munmap_thread -> spt, addr);
+	if(munmap_page == NULL){
+		return;
+	}
+	if(VM_FILE != page_get_type(munmap_page)){
+		return;
+	}
 
+	do_munmap(addr);
 }

@@ -183,24 +183,34 @@ do_munmap (void *addr) {
 	struct thread *munmap_thread = thread_current ();
 	struct page *munmap_page = spt_find_page (&munmap_thread -> spt, addr);
 
+	if(munmap_page == NULL){
+		return;
+	}
+
+	struct supplemental_page_table *munmap_spt = &munmap_thread -> spt;
+	struct mmap_info *mmap_info = munmap_page -> file.mmap_info;
 	switch (munmap_page->operations->type)
 	{
 	case VM_UNINIT:
-		for (int i = 0; i < ((struct mmap_load_info*)munmap_page -> uninit.aux)->mmap_info->page_count ; i++)
+		int uninit_count = ((struct mmap_load_info*)munmap_page -> uninit.aux)->mmap_info->page_count;
+
+		for (int i = 0; i < uninit_count; i++)
 		{
-			spt_remove_page (&munmap_thread -> spt, spt_find_page (&munmap_thread -> spt, addr + PGSIZE * i));
+			spt_remove_page (munmap_spt, spt_find_page (munmap_spt, addr + PGSIZE * i));
 		}
 
-		free (munmap_page -> file.mmap_info);
+		free (mmap_info);
 		break;
 	
 	case VM_FILE:
-		for (int i = 0; i < munmap_page -> file.mmap_info->page_count; i++)
+		int file_count = munmap_page -> file.mmap_info->page_count;
+		struct file *con_file = munmap_page -> file.mmap_info->con_file;
+		for (int i = 0; i < file_count; i++)
 		{
-			spt_remove_page (&munmap_thread -> spt, spt_find_page (&munmap_thread -> spt, addr + PGSIZE * i));
+			spt_remove_page (munmap_spt, spt_find_page (munmap_spt, addr + PGSIZE * i));
 		}
-
-		free (munmap_page -> file.mmap_info);
+		file_close(con_file);
+		free (mmap_info);
 		break;
 
 	default:
