@@ -88,6 +88,7 @@ static bool lazy_load_mmap_page(struct page *page, void *aux){
 	page->file.file = load_aux->mmap_info->con_file;
 	page->file.offset = load_aux->offset;
 	page->file.read_bytes = load_aux->read_bytes;
+	page->file.mmap_info = load_aux->mmap_info;
 	/*임시 aux 해제*/
 	free(load_aux);
 	
