@@ -458,6 +458,13 @@ check_buffer (const void *buffer, unsigned size, bool require_writable) {
 		if (!is_user_vaddr (p)){             // 페이지가 사용자 영역이 아니면 커널 메모리 침범이므로 종료
 			exit (-1);
 		}
+
+		if(spt_find_page(&thread_current()->spt, p) == NULL){
+			if(p <= USER_STACK && p >= thread_current()->rsp-8){
+				return;
+			}
+				exit (-1);
+		}
 		if (pml4_get_page (pml4, p) == NULL){
 			if(spt_find_page(&thread_current()->spt, p) == NULL){
 				exit(-1);
@@ -467,7 +474,7 @@ check_buffer (const void *buffer, unsigned size, bool require_writable) {
 			if(spt_find_page(&thread_current()->spt, p)->writable == false){
 				exit(-1);
 		}
-	}
+		}
 	}
 
 }
