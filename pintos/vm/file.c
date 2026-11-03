@@ -101,7 +101,7 @@ do_mmap (void *addr, size_t length, int writable,
 	//(접근주소, 읽는 길이, 쓰기여부, 파일 구조체, 파일 오프셋)
 
 	//파일 위치
-	struct file *mmap_file = reopen(file);
+	struct file *mmap_file = file_reopen(file);
 	if(mmap_file == NULL){
 		return NULL;
 	}
