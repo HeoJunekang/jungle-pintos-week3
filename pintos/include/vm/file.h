@@ -11,6 +11,17 @@ struct file_page {
 	off_t offset;
 	size_t read_bytes;
 };
+
+/* 
+mmap_info <-file close의 주체
+mmap---------
+filepage1
+filepage2
+filepage3
+-------------
+addr는 uva 즉 file page의 시작 주소
+page_count는 4kb이상의 file page일 경우 4kb 단위로 연속되게 저장됨
+*/
 struct mmap_info{
 	void *addr;
 	size_t page_count;

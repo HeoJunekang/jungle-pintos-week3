@@ -514,7 +514,9 @@ dup2(int oldfd, int newfd){
 
 	return newfd;
 }
+/*
 
+*/
 void*
 mmap (void *addr, size_t length, int writable, int fd, off_t offset){
 	struct thread *t = thread_current();
