@@ -59,7 +59,7 @@ file_backed_destroy (struct page *page) {
 		}
 	}
 	pml4_clear_page(thread_current()->pml4, page->va);
-	
+
 }
 
 /* Do the mmap */
@@ -130,6 +130,8 @@ do_mmap (void *addr, size_t length, int writable,
 	void *cur_addr = addr;
 	/*4kb 이상의 파일을 읽을 때 다음 페이지의 오프셋을 설정해 주기 위한 변수*/
 	off_t cur_offset = offset;
+	if (cur_offset < 0 || cur_offset % PGSIZE != 0)
+    return NULL;
 
 	/*fd에 파일을 열어 독립된 파일주소와 연결*/
 	struct file *file_addr = file_reopen(file);
@@ -145,6 +147,16 @@ do_mmap (void *addr, size_t length, int writable,
 	mmap_info->addr = addr;
 	mmap_info->con_file = file_addr;
 	int page_count = 0;
+
+	uintptr_t start = (uintptr_t)addr;
+
+	if (length - 1 > UINTPTR_MAX - start)
+		return NULL;
+
+	uintptr_t end = start + length - 1;
+
+	if (!is_user_vaddr((void *)end))
+		return NULL;
 	/*
 	length 와 remain_len 차이
 	length : 파일타입의 페이지의 공간을 할당
