@@ -179,4 +179,31 @@ do_mmap (void *addr, size_t length, int writable,
 /* Do the munmap */
 void
 do_munmap (void *addr) {
+	
+	struct thread *munmap_thread = thread_current ();
+	struct page *munmap_page = spt_find_page (&munmap_thread -> spt, addr);
+
+	switch (munmap_page->operations->type)
+	{
+	case VM_UNINIT:
+		for (int i = 0; i < ((struct mmap_load_info*)munmap_page -> uninit.aux)->mmap_info->page_count ; i++)
+		{
+			spt_remove_page (&munmap_thread -> spt, spt_find_page (&munmap_thread -> spt, addr + PGSIZE * i));
+		}
+
+		free (munmap_page -> file.mmap_info);
+		break;
+	
+	case VM_FILE:
+		for (int i = 0; i < munmap_page -> file.mmap_info->page_count; i++)
+		{
+			spt_remove_page (&munmap_thread -> spt, spt_find_page (&munmap_thread -> spt, addr + PGSIZE * i));
+		}
+
+		free (munmap_page -> file.mmap_info);
+		break;
+
+	default:
+		break;
+	}
 }
