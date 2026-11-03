@@ -113,6 +113,13 @@ make_load_info(off_t offset, size_t read_bytes, size_t zero_bytes, void* mmap_in
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
+	if(!is_user_vaddr(addr)) return NULL;
+	/*주소 정렬 부정확*/
+	if((uintptr_t)addr % PGSIZE != 0) return NULL;
+	/*length == 0 페이지 할당 x*/
+	if(length == 0) return NULL;
+
+
 
 	/*file에 적혀있는 크기*/
 	size_t file_size = file_length(file);
@@ -149,7 +156,7 @@ do_mmap (void *addr, size_t length, int writable,
 		size_t zero_bytes = PGSIZE - read_bytes;
 		/*aux값으로 file로 페이지가 전환되었을 때 구성에 필요한 값 저장*/
 		struct mmap_load_info *info = make_load_info(cur_offset, read_bytes, zero_bytes, mmap_info);
-		if(info == NULL) return false;
+		if(info == NULL) return NULL;
 		
 		void *aux = info; 
 		if(!vm_alloc_page_with_initializer(VM_FILE, cur_addr, writable, lazy_load_mmap_page, aux)){

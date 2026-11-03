@@ -22,7 +22,7 @@ void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
 static struct lock file_lock; 
-static void check_buffer (const void *buffer, unsigned size);
+static void check_buffer (const void *buffer, unsigned size, bool require_writable);
 static bool check_address(const char *file);
 static struct file *fd_to_file (int fd);
 static bool check_file(const char *file);
@@ -300,7 +300,7 @@ filesize (int fd){
 
 int
 read (int fd, void *buffer, unsigned size) {
-    check_buffer(buffer, size);
+    check_buffer(buffer, size, true);
 
     struct thread *t = thread_current();
 
@@ -348,7 +348,7 @@ read (int fd, void *buffer, unsigned size) {
 
 int
 write (int fd, const void *buffer, unsigned size){
-	check_buffer(buffer, size);
+	check_buffer(buffer, size, false);
 
 	struct thread *t = thread_current();
 
@@ -435,7 +435,7 @@ close (int fd){
 }
 
 static void
-check_buffer (const void *buffer, unsigned size) {
+check_buffer (const void *buffer, unsigned size, bool require_writable) {
 	if (buffer == NULL)          // 버퍼 포인터가 NULL이면 잘못된 접근이므로 종료
 		exit (-1);
 
@@ -461,9 +461,15 @@ check_buffer (const void *buffer, unsigned size) {
 		if (pml4_get_page (pml4, p) == NULL){
 			if(spt_find_page(&thread_current()->spt, p) == NULL){
 				exit(-1);
-			} //need to check
+			}
+		}
+		if(require_writable){
+			if(spt_find_page(&thread_current()->spt, p)->writable == false){
+				exit(-1);
 		}
 	}
+	}
+
 }
 
 static struct file *
