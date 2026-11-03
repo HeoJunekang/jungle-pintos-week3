@@ -22,10 +22,11 @@ void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
 static struct lock file_lock; 
-static void check_buffer (const void *buffer, unsigned size);
+static void check_buffer (const void *buffer, unsigned size, bool require_writable);
 static bool check_address(const char *file);
 static struct file *fd_to_file (int fd);
 static bool check_file(const char *file);
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -118,6 +119,15 @@ syscall_handler (struct intr_frame *f) {
 
 		case SYS_DUP2:
 			f->R.rax = dup2((int)f->R.rdi, (int)f->R.rsi);
+			break;
+
+		case SYS_MMAP:
+			f->R.rax = mmap((void*)f->R.rdi, (size_t)f->R.rsi,(int) f->R.rdx, (int)f->R.r10, (off_t)f->R.r8);
+			break;
+
+		case SYS_MUNMAP:
+			munmap((void*)f->R.rdi);
+	
 			break;
 
 		default:
@@ -290,7 +300,7 @@ filesize (int fd){
 
 int
 read (int fd, void *buffer, unsigned size) {
-    check_buffer(buffer, size);
+    check_buffer(buffer, size, true);
 
     struct thread *t = thread_current();
 
@@ -338,7 +348,7 @@ read (int fd, void *buffer, unsigned size) {
 
 int
 write (int fd, const void *buffer, unsigned size){
-	check_buffer(buffer, size);
+	check_buffer(buffer, size, false);
 
 	struct thread *t = thread_current();
 
@@ -425,7 +435,7 @@ close (int fd){
 }
 
 static void
-check_buffer (const void *buffer, unsigned size) {
+check_buffer (const void *buffer, unsigned size, bool require_writable) {
 	if (buffer == NULL)          // 버퍼 포인터가 NULL이면 잘못된 접근이므로 종료
 		exit (-1);
 
@@ -451,9 +461,15 @@ check_buffer (const void *buffer, unsigned size) {
 		if (pml4_get_page (pml4, p) == NULL){
 			if(spt_find_page(&thread_current()->spt, p) == NULL){
 				exit(-1);
-			} //need to check
+			}
+		}
+		if(require_writable){
+			if(spt_find_page(&thread_current()->spt, p)->writable == false){
+				exit(-1);
 		}
 	}
+	}
+
 }
 
 static struct file *
@@ -472,8 +488,8 @@ check_file(const char *file){
 		}
 	return false;
 }
-
-int dup2(int oldfd, int newfd){
+int 
+dup2(int oldfd, int newfd){
 	struct thread *t = thread_current();
 	struct file_descriptor** c_fdt = t->fdt;
 
@@ -503,4 +519,31 @@ int dup2(int oldfd, int newfd){
 	c_fdt[newfd]->share++;
 
 	return newfd;
+}
+/*
+
+*/
+void*
+mmap (void *addr, size_t length, int writable, int fd, off_t offset){
+	struct thread *t = thread_current();
+	struct file_descriptor** c_fdt = t->fdt; 
+	if(c_fdt == NULL) return NULL;
+	if(0<= fd && fd< FILE_MAX && c_fdt[fd] != NULL && c_fdt[fd]->fT == FD_FILE){
+		return do_mmap (addr, length, writable, c_fdt[fd]->file, offset);
+	}
+	return NULL;
+}
+
+void 
+munmap (void *addr){
+	struct thread *munmap_thread = thread_current ();
+	struct page *munmap_page = spt_find_page (&munmap_thread -> spt, addr);
+	if(munmap_page == NULL){
+		return;
+	}
+	if(VM_FILE != page_get_type(munmap_page)){
+		return;
+	}
+
+	do_munmap(addr);
 }
