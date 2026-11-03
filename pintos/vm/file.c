@@ -74,12 +74,19 @@ lazy_load_mmap_page (struct page *page, void *aux){
 		mmap_load_info->ofs);
 
 	if (read_byte != (off_t)mmap_load_info->page_read_bytes) {
+		free(mmap_load_info);
 		return false;
 	}
 
 	//남은 부분은 0바이트로 패딩하기
 	memset (page->frame->kva + mmap_load_info-> page_read_bytes, 0, mmap_load_info-> page_zero_bytes);
 
+
+	//페이지의 file 타입 정보 채우기
+	page->file.file = mmap_load_info->mmap_info->mmap_file;
+	page->file.offset = mmap_load_info->ofs;
+	page->file.read_bytes = mmap_load_info->page_read_bytes;
+	
 	free(mmap_load_info);
 	return true;
 
@@ -95,6 +102,9 @@ do_mmap (void *addr, size_t length, int writable,
 
 	//파일 위치
 	struct file *mmap_file = reopen(file);
+	if(mmap_file == NULL){
+		return NULL;
+	}
 	//접근 주소
 	void *cur_addr = addr;
 	//남은 읽을 길이
