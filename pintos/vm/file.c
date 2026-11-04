@@ -40,12 +40,57 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
+
+	/* 파일 내용 복사하기 */
+	off_t read_byte = file_read_at(file_page->file, kva, 
+		file_page->read_bytes, file_page->offset);
+	
+	if(read_byte != (off_t)file_page->read_bytes){
+		return false;
+	}
+	/* 남은 부분 0으로 채우기 */
+	size_t zero_bytes = PGSIZE-(file_page->read_bytes);
+	memset (kva + file_page->read_bytes, 0, zero_bytes);
+	
+	return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+	//어디서부터 지워야하는지 확인
+	//아니면 버림
+
+	//frame이 매핑되어있지 않음.
+	if(page->frame == NULL){
+		return false;
+	}
+
+	/* dirty check */
+	off_t read_byte;
+	if(file_page->file == NULL){
+		return false;
+	}
+	//수정 사항은 디스크에 반영
+	if(pml4_is_dirty(thread_current()->pml4, page->va)){
+		/* 읽은만큼만 디스크에 반영 */
+		read_byte = file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->offset);
+		//페이지 디스크에 제대로 반영이 안되면 false;
+		if(read_byte != (off_t)file_page->read_bytes){
+			return false;
+		}
+		// dirty false
+		pml4_set_dirty(thread_current()->pml4, page->va, false);
+	}
+	
+	//frame <-> page 관계 끊기 
+	page->frame->page = NULL;
+	page->frame = NULL;
+	pml4_clear_page(thread_current()->pml4, page->va);
+	
+	
+	return true;
 } 
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
