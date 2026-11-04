@@ -5,6 +5,9 @@
 #include "threads/mmu.h"
 #include "bitmap.h"
 
+#define SECTOR_PER_PAGE (PGSIZE/DISK_SECTOR_SIZE)
+
+
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
 static bool anon_swap_in (struct page *page, void *kva);
@@ -27,6 +30,8 @@ vm_anon_init (void) {
 	swap_disk = disk_get(1,1);
 	size_t bitmap_size = disk_size(swap_disk)/(PGSIZE/DISK_SECTOR_SIZE);
 	swap_slot = bitmap_create(bitmap_size);
+	bitmap_reset(swap_disk, bitmap_size);
+
 }
 
 /* Initialize the file mapping */
@@ -43,13 +48,25 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
+	//스왑슬롯을 확인하여 ram에 적제
+	//page(anon)에 스왑슬롯 -1로 표시
 }
 
 /* Swap out the page by writing contents to the swap disk. */
 static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	size_t swap_slot_num = bitmap_scan_and_flip(swap_slot,0,1,false); //맨 첫번째 false를 찾은 곳을 반환
+	if(swap_slot_num == BITMAP_ERROR) return false;
+
+	for(int j = 0; j < 8; j++){
+		disk_write(swap_disk, SECTOR_PER_PAGE*swap_slot_num + j, page->frame->kva + (512*j));
+	}
+
+	page->anon.swap_idx = swap_slot_num;
+	return true;
 }
+
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
 static void

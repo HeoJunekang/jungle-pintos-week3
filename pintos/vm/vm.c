@@ -16,6 +16,7 @@
 #include "devices/disk.h"
 
 struct list frame_table;
+struct list_elem *clock_hand;
 
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
@@ -31,7 +32,7 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
 	list_init(&frame_table);
-
+	clock_hand = frame_table.head.next;
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -151,8 +152,22 @@ static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
+	if(list_empty(&frame_table)) return NULL;
+	for(clock_hand ;
+	;
+	clock_hand = list_next(clock_hand)){
+		if(clock_hand == list_end(&frame_table)){
+			clock_hand = list_begin(&frame_table);
+		}
 
-	return victim;
+		struct frame *frame = list_entry(clock_hand, struct frame, frame_table_elem);
+		if(pml4_is_accessed(frame->pml4, frame->page->va)){
+			pml4_set_accessed(frame->pml4, frame->page->va, 0);
+		}else{
+			clock_hand = list_next(clock_hand);
+			return frame;
+		}
+	}
 }
 
 /* Evict one page and return the corresponding frame.
@@ -161,8 +176,16 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-
-	return NULL;
+	if(victim == NULL) return NULL;
+	if(swap_out(victim->page)){
+		victim->page->frame = NULL;
+		victim->page = NULL;
+		victim->pml4 = NULL;
+		pml4_clear_page(victim->pml4, victim->page->va);
+	}else{
+		return NULL;
+	}
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -175,15 +198,20 @@ vm_get_frame (void) {
 	if(frame == NULL){
 		return NULL;
 	}
+
 	frame->page = NULL;
+	frame->pml4 = NULL;
 	frame->kva = palloc_get_page(PAL_USER|PAL_ZERO);
 
 	if(frame->kva == NULL){
 		free(frame);
-		return NULL;
+		frame = vm_evict_frame();
+
+		if(frame == NULL) return NULL;
+		
+	}else{
+		list_push_back(&frame_table, &frame->frame_table_elem);
 	}
-	
-	list_push_back(&frame_table, &frame->frame_table_elem);
 
 	return frame;
 }
@@ -203,7 +231,7 @@ vm_stack_growth (void *addr UNUSED) {
 	}
 }	
 
-/* Handle the fault on write_protected page */
+/* Handle the fault on write_protected page */d
 static bool
 vm_handle_wp (struct page *page UNUSED) {
 }
@@ -278,6 +306,7 @@ vm_do_claim_page (struct page *page) {
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
+	frame->pml4 = thread_current()->pml4;
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if(
 		!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable))
