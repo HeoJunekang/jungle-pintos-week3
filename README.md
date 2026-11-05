@@ -1,131 +1,70 @@
-# 📘 Docker기반 Pintos 개발 환경 구축 가이드 
+# 🧠 Pintos · Virtual Memory
 
-이 문서는 **Windows**와 **macOS** 사용자가 Docker와 VSCode DevContainer 기능을 활용하여 Pintos OS 프로젝트를 빠르게 구축할 수 있도록 도와줍니다.
+**KAIST Pintos를 기반으로 가상 메모리 관리 기능을 구현한 운영체제 학습 프로젝트입니다.**
 
-[**주의**]
-* ubunbu:22.04 버전은 충분한 테스트와 검증이 되지 않았습니다. 이 점을 주의해서 사용하시기 바랍니다.
+프로세스의 가상 페이지를 관리하고, 실제 접근 시 필요한 데이터를 메모리에 준비하며, 메모리가 부족하면 기존 프레임을 교체하는 흐름을 구현합니다. 이전 단계의 스레드·사용자 프로그램 기능을 바탕으로 **지연 로딩, 스택 확장, 파일 매핑, 스왑**을 연결했습니다.
 
-[**참고**] 
-* pintos 도커 환경은 `64비트 기반 X86-64` 기반의 `ubuntu:22.04` 버전을 사용합니다.
-   * kaist-pintos는 오리지널 pintos와 달리 64비트 환경을 지원합니다.
-   * 이번 도커 환경은 ubuntu 22.04를 지원하여 vscode의 최신 버전에서 원격 연결이 안되는 문제를 해결하였습니다.
-* pintos 도커 환경은 kaist-pintos에서 추천하는 qemu 에뮬레이터를 설치하고 사용합니다. 
-* pintos 도커 환경은 9주차부터 13주차까지 같은 환경을 사용합니다. 이 기간동안 별도의 개발 환경을 제공하지 않습니다.
-* 기존 도커 환경과 달리 `vscode`와 통합된 디버깅 환경(F5로 시작하는)을 제공하지 않습니다. 디버깅이 필요한 경우 `gdb`를 사용하세요. 
-* vscode에서 터미널을 오픈하면 자동으로 `source /workspaces/pintos_22.04_lab_docker/pintos/activate`를 실행합니다.
+[구현·설계 요약](pintos/README.md) · [협업 가이드](.github/CONTRIBUTING.md) · [검증 기록](docs/test-results/2026-11-05-main-810e082.md) · [KAIST 공식 문서](https://casys-kaist.github.io/pintos-kaist/)
 
----
+## 📍 현재 상태
 
-## 1. Docker란 무엇인가요?
+> **가상 메모리 주요 기능 구현 · 메모리 교체 경로 검증 진행 중**
+>
+> `main`의 코드 기준 커밋 `810e082`를 새로 빌드·테스트했습니다. **기본 테스트 133/140 통과**, 추가 과제인 **COW 0/1 통과**입니다. 기본 테스트의 남은 실패는 페이지 병합 4개와 스왑 3개입니다.
 
-**Docker**는 애플리케이션을 어떤 컴퓨터에서든 **동일한 환경에서 실행**할 수 있게 도와주는 **가상화 플랫폼**입니다.  
+| 개발 범위 | 핵심 내용 | 현재 확인 범위 |
+| --- | --- | --- |
+| Threads | Alarm Clock, 우선순위 스케줄링·Donation, 동기화 | VM 빌드에 포함된 관련 테스트 18개 통과 |
+| User Programs | 인자 전달, 프로세스 관리, 시스템 콜 | VM 빌드에 포함된 관련 테스트 63개 통과 |
+| **Virtual Memory** | **SPT, 지연 로딩, 스택 확장, mmap·munmap, 스왑** | **기본 VM 테스트 39/46 통과** |
+| File Systems | 제공된 기본 파일 시스템 활용 | 기본 회귀 테스트 13개 통과. Project 4 확장 기능 완료를 뜻하지 않음 |
 
-Docker는 다음 구성요소로 이루어져 있습니다:
+## ✨ 주요 구현
 
-- **Docker Engine**: 컨테이너를 실행하는 핵심 서비스
-- **Docker Image**: 컨테이너 생성에 사용되는 템플릿 (레시피 📃)
-- **Docker Container**: 이미지를 기반으로 생성된 실제 실행 환경 (요리 🍜)
+- **필요한 순간에 로딩:** 페이지 정보를 먼저 등록하고, 첫 접근에서 프레임과 내용을 준비합니다.
+- **사용자 스택 확장:** 접근 주소와 사용자 `rsp`를 기준으로 정상적인 스택 접근을 판단합니다.
+- **파일 매핑:** `mmap`으로 파일 구간을 가상주소에 연결하고, `munmap`에서 매핑을 정리합니다.
+- **메모리 교체:** 프레임의 접근 흔적으로 교체 대상을 선택하고, ANON과 FILE에 맞는 보존·복원 경로를 구성했습니다. 이 경로에는 실패 테스트가 남아 있습니다.
 
-### ✅ AWS EC2와의 차이점
+## 👥 VM 개발 참여
 
-| 구분 | EC2 같은 VM | Docker 컨테이너 |
-|------|-------------|-----------------|
-| 실행 단위 | OS 포함 전체 | 애플리케이션 단위 |
-| 실행 속도 | 느림 (수십 초 이상) | 매우 빠름 (거의 즉시) |
-| 리소스 사용 | 무거움 | 가벼움 |
+| 이름·활동명 | GitHub |
+| --- | --- |
+| 허준강 | [@HeoJunekang](https://github.com/HeoJunekang) |
+| stereokkh | [@stereokkh](https://github.com/stereokkh) |
+| 김명준 | [@haihai1222555-droid](https://github.com/haihai1222555-droid) |
 
----
+VM 개발 기간의 커밋 작성자 기준입니다. 이전 프로젝트의 코드와 기여 이력도 저장소에 포함되어 있습니다.
 
-## 2. VSCode DevContainer란 무엇인가요?
+## 🤝 협업 방식
 
-**DevContainer**는 VSCode에서 Docker 컨테이너를 **개발 환경**처럼 사용할 수 있게 해주는 기능입니다.
+- 개인 작업 브랜치에서 기능을 구현하고, PR로 `develop`에 통합합니다.
+- 프로젝트 단위로 검토한 내용을 `main`에 반영합니다.
+- PR에는 변경 목적·설계·검증 결과를 기록하고, 관련 테스트와 기존 기능의 회귀 여부를 확인합니다.
+- 커밋은 `feat`, `fix`, `refactor`, `test`, `docs`, `chore`로 작업 목적을 구분합니다.
 
-- 코드를 실행하거나 디버깅할 때 **컨테이너 내부 환경에서 동작**
-- 팀원 간 **환경 차이 없이 동일한 개발 환경 구성** 가능
-- `.devcontainer` 폴더에 정의된 설정을 VSCode가 읽어 자동 구성
+세부 규칙은 [협업 가이드](.github/CONTRIBUTING.md)와 [PR 템플릿](.github/pull_request_template.md)을 따릅니다.
 
----
+## 🧪 검증 요약
 
-## 3. Docker Desktop 설치하기
+**2026-11-05 · `810e082` · Ubuntu 22.04 컨테이너 / GCC / QEMU**
 
-1. Docker 공식 사이트에서 설치 파일 다운로드:  
-   👉 [https://www.docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)
+| 항목 | 결과 |
+| --- | --- |
+| 새 VM 커널 빌드 | 성공, 컴파일 경고 남음 |
+| 기본 테스트 | **133 PASS / 7 FAIL** |
+| 추가 COW 테스트 | **0 PASS / 1 FAIL** |
 
-2. 설치 후 Docker Desktop 실행  
-   - Windows: Docker 아이콘이 트레이에 떠야 함  
-   - macOS: 상단 메뉴바에 Docker 아이콘 확인
+`pt-grow-stk-sc`, mmap 테스트 25개, 지연 로딩 테스트 2개가 통과했습니다. 메모리 압박 상황의 페이지 병합·스왑에서는 커널 패닉이 발생했고, COW는 미구현 상태입니다. 상세 결과와 실행 조건은 [검증 기록](docs/test-results/2026-11-05-main-810e082.md)에 정리했습니다.
 
----
+## 🛠️ 개발 환경
 
-## 4. 프로젝트 파일 다운로드 (히스토리 없이)
+**C · x86-64 · Ubuntu 22.04 · Docker / VS Code Dev Containers · QEMU · GDB**
 
-터미널(CMD, PowerShell, zsh 등)에서 아래 명령어로 프로젝트 폴더만 내려받습니다:
+Docker 설치부터 VS Code 개발 컨테이너 구성까지는 [Docker 기반 개발 환경 구축 가이드](docs/SETUP.md)를 참고하세요. 기존 환경 구축 가이드 원문을 별도 보존했습니다.
 
-```bash
-git clone --depth=1 https://github.com/krafton-jungle/pintos_22.04_lab_docker.git 
-```
+개발 컨테이너 설정은 [`.devcontainer`](.devcontainer)에 있습니다. 빌드·테스트 방법은 [내부 README](pintos/README.md#-빌드와-검증)를 참고하세요.
 
-- `--depth=1` 옵션은 git commit 히스토리를 생략하고 **최신 파일만 가져옵니다.**
+## 📚 기반 프로젝트
 
-### 📂 다운로드 후 폴더 구조 설명
-
-```
-pintos_22.04_lab_docker/
-├── .devcontainer/
-│   ├── devcontainer.json      # VSCode에서 컨테이너 환경 설정
-│   └── Dockerfile             # pintos 개발 환경 도커 이미지 정의
-│
-├── pintos
-│   ├── threads                # 9주차 threads 프로젝트 폴더
-│   ├── userprog               # 10-11주차 user program 프로젝트 폴더
-│   └── vm                     # 12-13주차 virtual memory 프로젝트 폴더
-│
-└── README.md                  # 현재 문서
-```
----
-
-## 5. VSCode에서 해당 프로젝트 폴더 열기
-
-1. VSCode를 실행
-2. `파일 → 폴더 열기`로 방금 클론한 `pintos_22.04_lab_docker` 폴더를 선택
-
----
-
-## 6. 개발 컨테이너: 컨테이너에서 열기
-
-1. VSCode에서 `Ctrl+Shift+P` (Windows/Linux) 또는 `Cmd+Shift+P` (macOS)를 누릅니다.
-2. 명령어 팔레트에서 `Dev Containers: Reopen in Container`를 선택합니다.
-3. 이후 컨테이너가 자동으로 실행되고 빌드됩니다. 처음 컨테이너를 열면 빌드하는 시간이 오래걸릴 수 있습니다. 빌드 후, 프로젝트가 **컨테이너 안에서 실행됨**.
-
----
-
-## 7. C 파일에 브레이크포인트 설정 후 디버깅 (F5)
-pintos 랩에서는 vscode기반의 디버깅을 지원하지 않습니다. 
-
----
-## 8. 새로운 Git 리포지토리에 Commit & Push 하기
-
-금주 프로젝트를 개인 Git 리포와 같은 다른 리포지토리에 업로드하려면, 기존 Git 연결을 제거하고 새롭게 초기화해야 합니다.
-
-### ✅ 완전히 새로운 Git 리포로 업로드하는 방법
-
-아래 명령어를 순서대로 실행하세요:
-
-```bash
-rm -rf .git
-git init
-git remote add origin https://github.com/myusername/my-new-repo.git
-git add .
-git commit -m "Clean start"
-git push -u origin main
-```
-
-### 📌 설명
-
-- `rm -rf .git`: 기존 Git 기록과 연결을 완전히 삭제합니다.
-- `git init`: 현재 폴더를 새로운 Git 리포지토리로 초기화합니다.
-- `git remote add origin ...`: 새로운 리포지토리 주소를 origin으로 등록합니다.
-- `git add .` 및 `git commit`: 모든 파일을 커밋합니다.
-- `git push`: 새로운 리포에 최초 업로드(Push)합니다.
-
-이 과정을 거치면 기존 리포와의 연결은 완전히 제거되고, **새로운 독립적인 프로젝트로 관리**할 수 있습니다.
+[KAIST Pintos](https://casys-kaist.github.io/pintos-kaist/)는 KAIST CS330 운영체제 실습용 프로젝트입니다. 이 저장소는 해당 코드와 [KRAFTON Jungle 개발 환경](https://github.com/krafton-jungle/pintos_22.04_lab_docker)을 기반으로 합니다. 원본 라이선스는 [pintos/LICENSE](pintos/LICENSE)에 보존되어 있습니다.
