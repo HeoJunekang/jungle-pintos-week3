@@ -109,11 +109,17 @@ struct thread {
 	int nice;
 	fixed_t recent_cpu;
 	struct list_elem mlfqs_list_elem; // 동시에 하나만 들어갈 수 있으므로 하나 더 추가 (현재 running_thread, ready_thread 세기 위함)
+
+	/* user stack stack bottom */
+	uintptr_t user_stack_bottom;
+	uintptr_t rsp;
+	
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	struct file *running_file;
 	uint64_t *pml4;                     /* Page map level 4 */
-	struct file **fdt;
+	//struct file **fdt;
+	struct file_descriptor **fdt;
 	int exit_status;
 	struct list childs;
 	struct list_elem child_elem;
@@ -123,11 +129,25 @@ struct thread {
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+
 #endif
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
+};
+
+enum fd_type
+{
+	FD_STDOUT,
+	FD_STDIN,
+	FD_FILE
+};
+
+struct file_descriptor {
+	enum fd_type fT;
+    struct file *file;      // 실제 파일 포인터 (stdin/stdout 식별용 특수 플래그/포인터 포함)
+    int share;          // 이 파일 엔트리를 참조하는 FD 개수
 };
 
 /* If false (default), use round-robin scheduler.

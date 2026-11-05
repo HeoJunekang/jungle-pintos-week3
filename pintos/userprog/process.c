@@ -42,6 +42,14 @@ fork_info{
 	bool success;
 };
 
+struct 
+vm_entry{
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+	off_t ofs;
+	struct file *file;
+};
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -128,12 +136,32 @@ initd (void *f_name) {
 int
 fd_init(){
 	struct thread *t = thread_current();
-	struct file **fd = calloc(64,sizeof(struct file *));
+	struct file_descriptor **fd = calloc(FILE_MAX, sizeof(struct file_descriptor *));
 	if(fd == NULL) return -1;
+
+	fd[0] = malloc(sizeof(struct file_descriptor));
+	if(fd[0] == NULL){
+		free(fd);
+		return -1;
+	} 
+	fd[0]->fT = FD_STDIN;
+	fd[0]->file = NULL;
+	fd[0]->share = 1;	
+	
+	fd[1] = malloc(sizeof(struct file_descriptor));
+	if(fd[1] == NULL){
+		free(fd[0]);
+		free(fd);
+		return -1;
+	} 
+	fd[1]->fT = FD_STDOUT;
+	fd[1]->file = NULL;
+	fd[1]->share = 1;
 
 	t->fdt = fd;
 	return 0;
 }
+
 
 
 /* Clones the current process as `name`. Returns the new process's thread id, or
@@ -243,31 +271,76 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
-	if(fd_init()) goto error; //free process 종료시 해줘야 함
+	// if(fd_init()) goto error; //free process 종료시 해줘야 함
 
-	int i = 2;
-	while(i < FILE_MAX){
-		if(parent->fdt[i] != NULL){
-			current->fdt[i] = file_duplicate(parent->fdt[i]);
-			if(current->fdt[i] == NULL) goto error;
+	/* 자식의 빈 FDT 배열 생성 */
+	current->fdt = calloc(FILE_MAX, sizeof(struct file_descriptor *));
+	if (current->fdt == NULL)
+		goto error;
+
+	if (parent->fdt == NULL)
+		goto error;
+
+	/* 부모 FDT 복제 */
+	for (int i = 0; i < FILE_MAX; i++) {
+		if (parent->fdt[i] == NULL)
+			continue;
+
+		int fd = find_back(parent->fdt, parent->fdt[i], i);
+
+		/* 이미 복제한 공유 객체라면 재사용 */
+		if (fd != -1) {
+			current->fdt[i] = current->fdt[fd];
+			current->fdt[i]->share++;
+			continue;
 		}
-		i++;
+
+		/* 처음 등장한 객체라면 새로 생성 */
+		struct file_descriptor *new_desc =
+			calloc(1, sizeof(struct file_descriptor));
+
+		if (new_desc == NULL)
+			goto error;
+
+		new_desc->fT = parent->fdt[i]->fT;
+		new_desc->share = 1;
+
+		/* 일반 파일일 때만 file_duplicate */
+		if (new_desc->fT == FD_FILE) {
+			new_desc->file = file_duplicate(parent->fdt[i]->file);
+
+			if (new_desc->file == NULL) {
+				free(new_desc);
+				goto error;
+			}
+		}
+
+		current->fdt[i] = new_desc;
 	}
 
-	process_init ();
+		process_init ();
 
-	/* Finally, switch to the newly created process. */
+		/* Finally, switch to the newly created process. */
 
-	if_.R.rax = 0;
-	info->success = true;
-	sema_up(&info->sema);
-	do_iret (&if_);
+		if_.R.rax = 0;
+		info->success = true;
+		sema_up(&info->sema);
+		do_iret (&if_);
 
-		
-error:
-	info->success = false;
-	sema_up(&info->sema);
-	thread_exit ();
+			
+	error:
+		info->success = false;
+		sema_up(&info->sema);
+		thread_exit ();
+}
+int 
+find_back(struct file_descriptor **fdt, struct file_descriptor *cur, int fd){
+	for(int i = fd-1; i >= 0; i--){
+		if(fdt[i] == cur){
+			return i;
+		}
+	}
+	return -1;
 }
 
 /* Switch the current execution context to the f_name.
@@ -290,7 +363,10 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
+
 	/* And then load the binary */
+	supplemental_page_table_init(&t->spt);
+
 	char* save_ptr;
 	char* buffer;
 	char* letter;
@@ -437,10 +513,21 @@ process_exit (void) {
 	
 	process_cleanup ();
 	file_close (curr->running_file);
+
 	if (curr -> fdt != NULL){
 		for (int i= 0; i<FILE_MAX; i++){
 			if (curr->fdt[i] != NULL){
-				file_close(curr -> fdt[i]);
+				if (curr->fdt[i]->share == 1){
+					if (curr->fdt[i]->fT == FD_FILE){
+						file_close(curr -> fdt[i]->file);
+					}
+					free(curr->fdt[i]);
+				}
+				else{ 
+					if(curr->fdt[i]->share >= 2){
+						curr->fdt[i]->share --;
+					}
+				}
 			}
 		}
 	}
@@ -565,8 +652,6 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
-
-
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -818,15 +903,28 @@ install_page (void *upage, void *kpage, bool writable) {
 			&& pml4_set_page (t->pml4, upage, kpage, writable));
 }
 #else
-/* From here, codes will be used after project 3.
- * If you want to implement the function for only project 2, implement it on the
- * upper block. */
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	struct vm_entry *vm_entry = (struct vm_entry*) aux;
+	struct file *read_file = vm_entry -> file;
+	
+	//페이지 할당해서 파일내용을 로딩하기
+	off_t read_byte = file_read_at(read_file, page->frame->kva, vm_entry->page_read_bytes,
+		vm_entry->ofs);
+
+	if (read_byte != (off_t)vm_entry->page_read_bytes) {
+		return false;
+	}
+
+	//남은 부분은 0바이트로 패딩하기
+	memset (page->frame->kva + vm_entry-> page_read_bytes, 0, vm_entry-> page_zero_bytes);
+
+	free(vm_entry);
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -843,6 +941,14 @@ lazy_load_segment (struct page *page, void *aux) {
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
+/*FILE의 오프셋 OFS부터 시작하는 세그먼트를 UPAGE 주소로 로드합니다.  
+총 READ_BYTES + ZERO_BYTES 바이트의 가상 메모리가 다음과 같이 초기화됩니다:
+- READ_BYTES 바이트는 FILE의 OFS 오프셋부터 읽어야 합니다.
+- UPAGE와 READ_BYTES 사이의 ZERO_BYTES 바이트는 0으로 초기화되어야 합니다.
+ 
+이 함수로 초기화된 페이지는 WRITABLE이 true일 경우 사용자 프로세스가 쓰기 가능해야 하며, 그렇지 않으면 읽기 전용이어야 합니다.
+
+메모리 할당 오류나 디스크 읽기 오류가 발생하면 false를 반환하고, 성공하면 true를 반환합니다.*/
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
@@ -858,17 +964,41 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
-			return false;
+		struct vm_entry *aux = malloc(sizeof(struct vm_entry));
+		if(aux == NULL) return false;
 
+		aux->page_read_bytes = page_read_bytes;
+		aux->page_zero_bytes = page_zero_bytes;
+		aux->ofs = ofs;
+		aux->file = file_reopen(file);//file의 위치 초기화
+
+		if (!vm_alloc_page_with_initializer (VM_ANON,
+			upage,
+			writable,
+			lazy_load_segment,
+			aux)){
+
+				return false;
+			}
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
+}
+
+void*
+get_copy_aux(struct page *page){
+	struct vm_entry *src_aux = page->uninit.aux;
+
+	struct vm_entry *dst_aux = malloc(sizeof(struct vm_entry));
+	if(dst_aux == NULL) return NULL;
+
+	memcpy(dst_aux, src_aux, sizeof(struct vm_entry));
+
+	return dst_aux;
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
@@ -881,7 +1011,17 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-
-	return success;
+	if(!vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, 1)){ //spt 매핑 //왜 marker_0?
+		return false;
+	}
+	if(!vm_claim_page(stack_bottom)){						// pml4 매핑
+		return false;
+	}
+	
+	if_->rsp = USER_STACK;
+	struct thread *curr = thread_current();
+	curr -> user_stack_bottom = stack_bottom;
+	
+	return true;
 }
 #endif /* VM */

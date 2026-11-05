@@ -9,8 +9,8 @@
 
 /* Index of a disk sector within a disk.
  * Good enough for disks up to 2 TB. */
-typedef uint32_t disk_sector_t;
 
+typedef uint32_t disk_sector_t;
 /* Format specifier for printf(), e.g.:
  * printf ("sector=%"PRDSNu"\n", sector); */
 #define PRDSNu PRIu32

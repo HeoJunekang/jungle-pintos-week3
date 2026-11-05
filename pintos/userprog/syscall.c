@@ -14,6 +14,7 @@
 #include "devices/input.h"
 #include "filesys/filesys.h"
 #include "threads/palloc.h"
+#include "vm/vm.h"
 
 
 
@@ -21,10 +22,11 @@ void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
 static struct lock file_lock; 
-static void check_buffer (const void *buffer, unsigned size);
+static void check_buffer (const void *buffer, unsigned size, bool require_writable);
 static bool check_address(const char *file);
 static struct file *fd_to_file (int fd);
 static bool check_file(const char *file);
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -55,6 +57,7 @@ syscall_init (void) {
 struct intr_frame *f_data; // 프레임을 집어 넣어야 하는데 인자 개수가 f->R.rdi 하나로 제한되어 전역 변수 선언하여 집어넣음
 void
 syscall_handler (struct intr_frame *f) {
+	thread_current()->rsp = f->rsp;
 	switch (f->R.rax) {
 		case SYS_HALT:
 			halt ();
@@ -112,6 +115,19 @@ syscall_handler (struct intr_frame *f) {
 
 		case SYS_CLOSE:
 			close((int) f->R.rdi);
+			break;
+
+		case SYS_DUP2:
+			f->R.rax = dup2((int)f->R.rdi, (int)f->R.rsi);
+			break;
+
+		case SYS_MMAP:
+			f->R.rax = mmap((void*)f->R.rdi, (size_t)f->R.rsi,(int) f->R.rdx, (int)f->R.r10, (off_t)f->R.r8);
+			break;
+
+		case SYS_MUNMAP:
+			munmap((void*)f->R.rdi);
+	
 			break;
 
 		default:
@@ -243,10 +259,21 @@ open (const char *file){
 	if(f == NULL) return -1;
 
 	/*빈 0,1은 쓰니까 스킵*/
-	for(int i = 2; i<FILE_MAX; i++){
+	for(int i = 0; i<FILE_MAX; i++){
 		if(t->fdt[i] == NULL){
-			t->fdt[i] = f;
-			return i;
+			struct file_descriptor *desc = malloc(sizeof(struct file_descriptor));
+
+            if (desc == NULL) {
+                file_close(f);
+                return -1;
+            }
+
+            desc->file = f;
+            desc->fT = FD_FILE;
+            desc->share = 1;
+
+            t->fdt[i] = desc;
+            return i;
 		}
 	}
 
@@ -257,86 +284,127 @@ open (const char *file){
 
 int
 filesize (int fd){
-	if(fd < 2 || fd >= FILE_MAX) return -1;
-	struct thread *t = thread_current();
-	struct file *f = t->fdt[fd];
-	int size = -1;
-	if(f != NULL){
-		size = (int)file_length(f);
-	}
+	if (fd < 0 || fd >= FILE_MAX)
+		return -1;
+
+	struct file_descriptor *file_desc = thread_current ()->fdt[fd];
+
+	if (file_desc == NULL || file_desc->fT != FD_FILE || file_desc->file == NULL)
+		return -1;
+
+	lock_acquire (&file_lock);
+	int size = (int) file_length (file_desc->file);
+	lock_release (&file_lock);
 	return size;
 }
 
 int
-read (int fd, void *buffer, unsigned size){
-	check_buffer(buffer, size);
+read (int fd, void *buffer, unsigned size) {
+    check_buffer(buffer, size, true);
 
-	struct thread *t = thread_current();
+    struct thread *t = thread_current();
 
-	if (fd < 0 || fd > 128) return -1;
- 	if (fd == 0)
-	{
-		char *buf = (char *)buffer;
-		for (int i = 0; i < size; i++)
-		{
-			buf[i] = input_getc(); 
-		}
-		return size;
-	}
-	else if (fd == 1)
-	{
-		return -1;
-	}
-	else if(fd >= 2)
-	{
-		#ifdef USERPROG
-			if (t->fdt[fd] == NULL) return -1;	
-			lock_acquire(&file_lock);
-			int len = file_read(t->fdt[fd], buffer, size);
-			lock_release(&file_lock);
-			return len;
-		#endif
-	}
-	
-	return 0;
+    /* FD 범위 검사 */
+    if (fd < 0 || fd >= FILE_MAX)
+        return -1;
+
+    /* FDT 및 FD 유효성 검사 */
+    if (t->fdt == NULL || t->fdt[fd] == NULL)
+        return -1;
+
+    struct file_descriptor *file_des = t->fdt[fd];
+
+    switch (file_des->fT) {
+        case FD_STDIN: {
+            char *buf = (char *) buffer;
+
+            for (unsigned i = 0; i < size; i++) {
+                buf[i] = input_getc();
+            }
+
+            return size;
+        }
+
+        case FD_STDOUT:
+            return -1;
+
+        case FD_FILE: {
+            if (file_des->file == NULL)
+                return -1;
+
+            lock_acquire(&file_lock);
+
+            int len = file_read(file_des->file, buffer, size);
+
+            lock_release(&file_lock);
+
+            return len;
+        }
+
+        default:
+            return -1;
+    }
 }
 
 int
 write (int fd, const void *buffer, unsigned size){
-	check_buffer(buffer, size);
-	if (fd < 0 || fd > 128) return -1;
-	if (fd == 1){// 모니터이기 때문에 이때만 콘솔 출력
+	check_buffer(buffer, size, false);
+
+	struct thread *t = thread_current();
+
+	if (fd < 0 || fd >= FILE_MAX) return -1;
+	if(t->fdt == NULL) return -1;
+
+	struct file_descriptor *file_des = t->fdt[fd];
+	if(file_des == NULL) return -1;
+	switch (file_des->fT)
+	{
+	case FD_STDOUT:{
 		putbuf(buffer, size); // buffer에서 n개의 문자를 콘솔에 출력하는 함수
 		return size;
 	}
-	if (fd == 0)
+	case FD_STDIN:
 		return -1;
-	
-	struct file *file = fd_to_file(fd); // 이거로 열어서 가져와야 함
-	
-	if (file == NULL)
+	case FD_FILE:{
+		if (file_des->file == NULL) return -1;
+		lock_acquire (&file_lock);
+		int written = file_write(file_des->file, buffer, size); // file 사용 함수, file구조체 주소로 넘겨줘야 함
+		
+		lock_release (&file_lock);
+		return written;
+	}
+	default:
 		return -1;
-	
-	lock_acquire (&file_lock);
-	int written = file_write (file, buffer, size); // file 사용 함수, file구조체 주소로 넘겨줘야 함
-	lock_release (&file_lock);
-	return written;
+	}
 }
 
 void
 seek (int fd, unsigned position){
-	if(fd < 2 || fd >= FILE_MAX) return;
+	if(fd < 0 || fd >= FILE_MAX) return;
 	struct thread *t = thread_current();
-	struct file *f = t->fdt[fd];
+	struct file *f;
+	struct file_descriptor *file_desc = t->fdt[fd];
+
+	if (file_desc == NULL || file_desc->fT != FD_FILE || file_desc->file == NULL)
+		return ;
+
+	f = file_desc -> file;
+
 	if(f != NULL) file_seek(f, (off_t)position);
 }
 
 unsigned
 tell (int fd){
-	if(fd < 2 || fd >= FILE_MAX) return (unsigned)-1;
+	if(fd < 0 || fd >= FILE_MAX) return (unsigned)-1;
 	struct thread *t = thread_current();
+	struct file *f; 
+	struct file_descriptor *file_desc = thread_current ()->fdt[fd];
 
-	struct file *f = t->fdt[fd];
+	if (file_desc == NULL || file_desc->fT != FD_FILE || file_desc->file == NULL)
+		return (unsigned)-1;
+
+	f = file_desc->file;
+
 	if(f != NULL){
 		return (unsigned)file_tell(f);
 	}
@@ -345,18 +413,29 @@ tell (int fd){
 
 void
 close (int fd){
-	if(fd < 2 || fd >= FILE_MAX) return;
+	if(fd < 0 || fd >= FILE_MAX) return;
 	struct thread *t = thread_current();
 
-	struct file *f = t->fdt[fd];
-	if(f != NULL){
-		file_close(f);
+	if(t->fdt == NULL) return;
+
+	struct file_descriptor *file_des = t->fdt[fd];
+	if(file_des == NULL) return;
+
+	if(file_des->share > 1){
+		file_des->share--;
+		t->fdt[fd] = NULL;
+	}else{
+		if(file_des->fT == FD_FILE){
+			file_close(file_des->file);
+		}
+		free(file_des);
 		t->fdt[fd] = NULL;
 	}
+	return;
 }
 
 static void
-check_buffer (const void *buffer, unsigned size) {
+check_buffer (const void *buffer, unsigned size, bool require_writable) {
 	if (buffer == NULL)          // 버퍼 포인터가 NULL이면 잘못된 접근이므로 종료
 		exit (-1);
 
@@ -370,7 +449,7 @@ check_buffer (const void *buffer, unsigned size) {
 		exit (-1); // uint8_t * : 64비트 (부호x) => 최대값 끝나면 0으로 감
 
 	uint64_t *pml4 = thread_current ()->pml4; // 현재 프로세스의 페이지 테이블(pml4)을 가져옴
-
+	
 	/* 
 	버퍼가 여러 페이지에 걸쳐 있을 수 있으므로,
 	start가 속한 페이지의 시작 주소부터 end가 속한 페이지까지 한 페이지씩 검사
@@ -379,10 +458,25 @@ check_buffer (const void *buffer, unsigned size) {
 		if (!is_user_vaddr (p)){             // 페이지가 사용자 영역이 아니면 커널 메모리 침범이므로 종료
 			exit (-1);
 		}
+
+		if(spt_find_page(&thread_current()->spt, p) == NULL){
+			if(p <= USER_STACK && p >= thread_current()->rsp-8){
+				return;
+			}
+				exit (-1);
+		}
 		if (pml4_get_page (pml4, p) == NULL){
-			exit (-1);
+			if(spt_find_page(&thread_current()->spt, p) == NULL){
+				exit(-1);
+			}
+		}
+		if(require_writable){
+			if(spt_find_page(&thread_current()->spt, p)->writable == false){
+				exit(-1);
+		}
 		}
 	}
+
 }
 
 static struct file *
@@ -400,4 +494,63 @@ check_file(const char *file){
 			exit (-1);
 		}
 	return false;
+}
+int 
+dup2(int oldfd, int newfd){
+	struct thread *t = thread_current();
+	struct file_descriptor** c_fdt = t->fdt;
+
+	if(c_fdt == NULL) return -1;
+
+	if((oldfd < 0 || oldfd >=FILE_MAX) ||
+	(newfd < 0 || newfd >=FILE_MAX))  
+	return -1;
+
+	if(c_fdt[oldfd] == NULL) return -1;
+
+	if(c_fdt[oldfd] == c_fdt[newfd]) return newfd;
+
+	if(c_fdt[newfd]!=NULL){
+		if(c_fdt[newfd]->share == 1){
+			if(c_fdt[newfd]->fT == FD_FILE){
+				file_close(c_fdt[newfd]->file);
+			}	
+			free(c_fdt[newfd]);
+			}else{
+				c_fdt[newfd]->share--;
+			}
+
+	}
+
+	c_fdt[newfd] = c_fdt[oldfd];
+	c_fdt[newfd]->share++;
+
+	return newfd;
+}
+/*
+
+*/
+void*
+mmap (void *addr, size_t length, int writable, int fd, off_t offset){
+	struct thread *t = thread_current();
+	struct file_descriptor** c_fdt = t->fdt; 
+	if(c_fdt == NULL) return NULL;
+	if(0<= fd && fd< FILE_MAX && c_fdt[fd] != NULL && c_fdt[fd]->fT == FD_FILE){
+		return do_mmap (addr, length, writable, c_fdt[fd]->file, offset);
+	}
+	return NULL;
+}
+
+void 
+munmap (void *addr){
+	struct thread *munmap_thread = thread_current ();
+	struct page *munmap_page = spt_find_page (&munmap_thread -> spt, addr);
+	if(munmap_page == NULL){
+		return;
+	}
+	if(VM_FILE != page_get_type(munmap_page)){
+		return;
+	}
+
+	do_munmap(addr);
 }
